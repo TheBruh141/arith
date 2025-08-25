@@ -5,5 +5,7 @@ edition = "2024"
 description = "A really basic language which supports arithmetic"
 [dependencies]
 clap = { version = "4.5.45", features = ["derive"] }
+clap_complete = "4.5.57"
+
 log = "0.4"
 env_logger = "0.11"

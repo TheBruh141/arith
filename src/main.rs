@@ -5,7 +5,8 @@
 //! or file processing mode based on the provided arguments.
 
 use arith::repl::run_repl;
-use clap::Parser;
+use clap::{Parser, Subcommand, CommandFactory};
+use clap_complete::{generate, shells};
 use env_logger::{Builder, Env};
 use log::LevelFilter;
 
@@ -30,6 +31,19 @@ struct Cli {
     /// If no files are specified, the interpreter will start in interactive REPL mode.
     #[arg(short, long)]
     files: Vec<String>,
+
+    #[command(subcommand)]
+    command: Option<Commands>,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Generate shell completions
+    Completion {
+        /// The shell to generate the completions for
+        #[arg(value_enum)]
+        shell: shells::Shell,
+    },
 }
 
 /// The main function of the `arith` interpreter.
@@ -43,6 +57,17 @@ fn main() -> std::io::Result<()> {
     let args = Cli::parse();
     Builder::from_env(Env::default().default_filter_or("debug")).init();
     log::set_max_level(LevelFilter::Debug);
+
+    if let Some(command) = args.command {
+        match command {
+            Commands::Completion { shell } => {
+                let mut cmd = Cli::command();
+                let cmd_name = cmd.get_name().to_string();
+                generate(shell, &mut cmd, cmd_name, &mut std::io::stdout());
+                return Ok(());
+            }
+        }
+    }
 
     if args.files.is_empty() {
         run_repl()
