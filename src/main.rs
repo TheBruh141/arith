@@ -1,8 +1,12 @@
 use std::io::{self, Write};
 use arith::executor::evaluate_lines;
+use std::fs::File;
+use std::path::Path;
+use log::{error, LevelFilter};
+use env_logger::{Builder, Env};
 
 pub fn run_repl() -> io::Result<()> {
-    println!("arith REPL — enter expressions. Use '\\' for line-continuation. :q to quit.");
+    println!("arith REPL — enter expressions. Use \\ for line-continuation. :q to quit.");
 
     let mut acc = String::new(); // accumulates current statement (may span lines)
 
@@ -13,7 +17,7 @@ pub fn run_repl() -> io::Result<()> {
         } else {
             print!("... ");
         }
-        io::stdout().flush()?; // don't be cute, flush the prompt
+        io::stdout().flush()?;
 
         // Read one line
         let mut line = String::new();
@@ -34,7 +38,24 @@ pub fn run_repl() -> io::Result<()> {
             match trimmed {
                 ":q" | ":quit" | ":exit" => break,
                 ":h" | ":help" => {
-                    println!("Commands: :q to quit, :help for this. Use '\\' to continue lines.");
+                    println!("Commands: :q to quit, :help for this. Use \\ to continue lines.");
+                    continue;
+                }
+                cmd if cmd.starts_with(":save") || cmd.starts_with(":w") || cmd.starts_with(":wq") => {
+                    let parts: Vec<&str> = cmd.splitn(2, ' ').collect();
+                    let filename = if parts.len() > 1 && !parts[1].is_empty() {
+                        parts[1].trim()
+                    } else {
+                        "history"
+                    };
+
+                    if let Err(e) = save_output(filename, &acc) {
+                        error!("Error saving output: {}", e);
+                    }
+                    acc.clear();
+                    if cmd.starts_with(":wq") {
+                        break;
+                    }
                     continue;
                 }
                 _ => {}
@@ -58,6 +79,23 @@ pub fn run_repl() -> io::Result<()> {
     Ok(())
 }
 
+fn save_output(filename: &str, content: &str) -> io::Result<()> {
+    let mut file_path = filename.to_string();
+
+    // Handle double extensions
+    if file_path.ends_with(".arith.arith") {
+        file_path = file_path.strip_suffix(".arith").unwrap().to_string();
+    } else if !file_path.ends_with(".arith") {
+        file_path.push_str(".arith");
+    }
+
+    let path = Path::new(&file_path);
+    let mut file = File::create(&path)?;
+    file.write_all(content.as_bytes())?;
+    println!("Output saved to {}", file_path);
+    Ok(())
+}
+
 fn eval_and_print(input: &str) {
     // Your orchestrator can accept multiple logical lines; we'll pass the whole chunk.
     let results = evaluate_lines(input);
@@ -66,7 +104,7 @@ fn eval_and_print(input: &str) {
     for res in results {
         match res {
             Ok(v) => println!("= {}", fmt_num(v)),
-            Err(e) => eprintln!("! {}", e), // assumes EvalError: Display
+            Err(e) => error!("! {}", e), // assumes EvalError: Display
         }
     }
 }
@@ -86,5 +124,7 @@ fn fmt_num(x: f64) -> String {
 }
 
 fn main() -> std::io::Result<()> {
+    Builder::from_env(Env::default().default_filter_or("debug")).init();
+    log::set_max_level(LevelFilter::Debug);
     run_repl()
 }

@@ -1,26 +1,62 @@
-use crate::tokenizer::{Token, TokenType};
 use crate::errors::ParserError;
+use crate::tokenizer::{Token, TokenType};
 
+/// Represents a node in the Abstract Syntax Tree (AST).
+///
+/// The AST is a tree representation of the grammatical structure of the
+/// source code. Each variant of this enum corresponds to a different type of
+/// expression in the `arith` language.
 #[derive(Debug, PartialEq)]
 pub enum Expr {
+    /// A literal floating-point number, e.g., `42.0`, `3.14`.
     Number(f64),
-    UnaryOp {
-        op: TokenType,
-        expr: Box<Expr>,
-    },
+
+    /// A unary operation, e.g., `-5`, `+x`.
+    ///
+    /// It consists of an operator (`op`) and an expression (`expr`) that it
+    /// applies to.
+    UnaryOp { op: TokenType, expr: Box<Expr> },
+
+    /// A binary operation, e.g., `a + b`, `c * d`.
+    ///
+    /// It consists of a left-hand side expression (`left`), an operator (`op`),
+    /// and a right-hand side expression (`right`).
     BinaryOp {
         left: Box<Expr>,
         op: TokenType,
         right: Box<Expr>,
     },
+
+    /// Represents an empty expression, typically from an empty input string.
     Empty,
+
+    /// Represents empty parentheses, e.g., `()`. In `arith`, this evaluates to `0`.
+    EmptyParen,
 }
+
+/// The `Parser` is responsible for syntactic analysis. It consumes a stream of
+/// `Token`s from the `Tokenizer` and produces an Abstract Syntax Tree (AST)
+/// that represents the grammatical structure of the input expression.
+///
+/// The parser implements a top-down recursive descent strategy, specifically
+/// a Pratt parser, to handle operator precedence and associativity correctly.
+///
+/// The grammar rules are applied in the parsing methods:
+/// - `parse_expr`: Handles the lowest precedence operators (`+`, `-`).
+/// - `parse_term`: Handles higher precedence operators (`*`, `/`) and implicit
+///   multiplication.
+/// - `parse_factor`: Handles the highest precedence elements, including numbers,
+///   parenthesized expressions, and unary operators.
 pub(crate) struct Parser {
     tokens: Vec<Token>,
     pos: usize,
 }
 
 impl Parser {
+    /// Creates a new `Parser`.
+    ///
+    /// It filters out comments and newlines from the token stream, as they are
+    /// not relevant to the parsing logic.
     pub fn new(tokens: Vec<Token>) -> Self {
         let filtered_tokens: Vec<Token> = tokens
             .into_iter()
@@ -32,16 +68,21 @@ impl Parser {
         }
     }
 
+    /// Returns the current token without consuming it.
     fn current(&self) -> &Token {
         &self.tokens[self.pos]
     }
 
+    /// Advances the parser to the next token.
     fn advance(&mut self) {
         if self.pos < self.tokens.len() - 1 {
             self.pos += 1;
         }
     }
 
+    /// Parses the entire token stream and returns the root of the AST.
+    ///
+    /// If the input is empty (only an EOF token), it returns `Expr::Empty`.
     pub fn parse(&mut self) -> Result<Expr, ParserError> {
         if matches!(self.current().get_type(), TokenType::EOF) {
             return Ok(Expr::Empty);
@@ -49,7 +90,12 @@ impl Parser {
         self.parse_expr()
     }
 
-    // Parse addition and subtraction
+    /// Parses expressions with the lowest precedence (addition and subtraction).
+    ///
+    /// This method forms the entry point for parsing expressions and handles
+    /// left-associative binary operators `+` and `-`.
+    ///
+    /// Grammar rule: `expression = term, { (PLUS | MINUS), term } `;
     fn parse_expr(&mut self) -> Result<Expr, ParserError> {
         let mut node = self.parse_term()?;
 
@@ -70,16 +116,25 @@ impl Parser {
         Ok(node)
     }
 
-    // Parse multiplication and division
+    /// Parses expressions with higher precedence (multiplication and division).
+    ///
+    /// This method handles left-associative binary operators `*` and `/`, as
+    /// well as implicit multiplication (e.g., `3(5)` or `(2)(3)`).
+    ///
+    /// Grammar rule: `term = factor, { (MUL | DIV), factor | factor } `;
     fn parse_term(&mut self) -> Result<Expr, ParserError> {
         let mut node = self.parse_factor()?;
 
         while matches!(
             self.current().get_type(),
-            TokenType::Mul | TokenType::Div | TokenType::ParanOpen
+            TokenType::Mul | TokenType::Div | TokenType::ParanOpen | TokenType::Number { .. }
         ) {
-            if matches!(self.current().get_type(), TokenType::ParanOpen) {
-                // Implicit multiplication
+            if matches!(self.current().get_type(), TokenType::ParanOpen) || matches!(
+                self.current().get_type(),
+                TokenType::Number { .. }
+            ) {
+                // Implicit multiplication has the same precedence as explicit multiplication.
+                // e.g., `3(5)` is parsed as `3 * 5`.
                 let right = self.parse_factor()?;
                 node = Expr::BinaryOp {
                     left: Box::new(node),
@@ -87,7 +142,7 @@ impl Parser {
                     right: Box::new(right),
                 };
             } else {
-                // Explicit multiplication or division
+                // Explicit multiplication or division.
                 let op = self.current().get_type().clone();
                 self.advance();
                 let right = self.parse_factor()?;
@@ -102,9 +157,15 @@ impl Parser {
         Ok(node)
     }
 
-    // Parse numbers, parentheses, and unary operators
+    /// Parses the highest precedence expressions (factors).
+    ///
+    /// Factors include numbers, parenthesized expressions, and unary operators.
+    ///
+    /// Grammar rule:
+    /// `factor = NUMBER | LPAREN, [expression], RPAREN | (PLUS | MINUS), factor `;
     fn parse_factor(&mut self) -> Result<Expr, ParserError> {
         match &self.current().get_type() {
+            // Unary plus and minus operators.
             TokenType::Plus | TokenType::Minus => {
                 let op = self.current().get_type().clone();
                 self.advance();
@@ -114,23 +175,42 @@ impl Parser {
                     expr: Box::new(expr),
                 })
             }
+            // Literal numbers.
             TokenType::Number { value } => {
-                let n: f64 = value
-                    .parse()
-                    .map_err(|_| ParserError::InvalidNumber(value.clone()))?;
+                let n: f64 = value.parse().map_err(|_| ParserError::InvalidNumber {
+                    value: value.clone(),
+                    line: self.current().get_line_no(),
+                    col: self.current().get_start(),
+                })?;
                 self.advance();
                 Ok(Expr::Number(n))
             }
+            // Parenthesized expressions.
             TokenType::ParanOpen => {
                 self.advance();
+                // Handle empty parentheses `()`.
+                if matches!(self.current().get_type(), TokenType::ParanClose) {
+                    self.advance();
+                    return Ok(Expr::EmptyParen);
+                }
                 let expr = self.parse_expr()?;
+                // Ensure the expression is followed by a closing parenthesis.
                 if !matches!(self.current().get_type(), TokenType::ParanClose) {
-                    return Err(ParserError::UnexpectedToken(self.current().get_type().clone()));
+                    return Err(ParserError::UnexpectedToken {
+                        found: self.current().get_type().clone(),
+                        line: self.current().get_line_no(),
+                        col: self.current().get_start(),
+                    });
                 }
                 self.advance();
                 Ok(expr)
             }
-            _ => Err(ParserError::UnexpectedToken(self.current().get_type().clone())),
+            // Handle unexpected tokens.
+            _ => Err(ParserError::UnexpectedToken {
+                found: self.current().get_type().clone(),
+                line: self.current().get_line_no(),
+                col: self.current().get_start(),
+            }),
         }
     }
 }
@@ -347,6 +427,26 @@ mod parser_tests {
                 left: Box::new(Expr::Number(3.0)),
                 op: TokenType::Mul,
                 right: Box::new(Expr::Number(5.0)),
+            },
+        );
+    }
+
+    #[test]
+    fn test_implicit_multiplication_between_parens() {
+        assert_parse_ok(
+            "(1+2)(3+4)",
+            Expr::BinaryOp {
+                left: Box::new(Expr::BinaryOp {
+                    left: Box::new(Expr::Number(1.0)),
+                    op: TokenType::Plus,
+                    right: Box::new(Expr::Number(2.0)),
+                }),
+                op: TokenType::Mul,
+                right: Box::new(Expr::BinaryOp {
+                    left: Box::new(Expr::Number(3.0)),
+                    op: TokenType::Plus,
+                    right: Box::new(Expr::Number(4.0)),
+                }),
             },
         );
     }

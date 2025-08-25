@@ -1,24 +1,42 @@
+use crate::errors::TokenizerError;
 use std::fmt::{Debug, Display, Formatter};
 
+/// Represents the type of `Token` in the `arith` language.
+///
+/// Each variant corresponds to a different lexical unit, such as an operator,
+/// a number, or a parenthesis.
 #[derive(Clone, Debug, PartialEq)]
 pub enum TokenType {
+    /// A newline character `\n`.
     Newline,
 
     // 4 basic operations
+    /// The addition operator `+`.
     Plus,
+    /// The subtraction operator `-`.
     Minus,
-    Div, // division
-    Mul, // multiplication
+    /// The division operator `/`.
+    Div,
+    /// The multiplication operator `*`.
+    Mul,
 
+    /// An opening parenthesis `(`.
     ParanOpen,
+    /// A closing parenthesis `)`.
     ParanClose,
 
-    // ;
+    /// A comment, starting with `;` and extending to the end of the line.
     Comment { contents: String },
+    /// A number literal, which can be an integer, a float, or in scientific notation.
     Number { value: String },
+    /// Represents the end of the input string.
     EOF,
 }
 
+/// Represents a token, a single lexical unit of the `arith` language.
+///
+/// A token has a `token_type`, and its location in the source code is tracked
+/// by `line_no`, `start`, and `end` column positions.
 #[derive(PartialEq, Debug, Clone)]
 pub struct Token {
     token_type: TokenType,
@@ -28,6 +46,7 @@ pub struct Token {
 }
 
 impl Token {
+    /// Creates a new `Token`.
     pub fn new(token_type: TokenType, line_no: usize, start: usize, end: usize) -> Token {
         Token {
             token_type,
@@ -37,7 +56,7 @@ impl Token {
         }
     }
 
-    // getters
+    // Getters for token properties.
     pub fn get_type(&self) -> &TokenType {
         &self.token_type
     }
@@ -51,6 +70,7 @@ impl Token {
         self.end
     }
 
+    // Helper methods for creating tokens of a specific type.
     pub fn plus(line_no: usize, pos: usize) -> Token {
         Token::new(TokenType::Plus, line_no, pos, pos)
     }
@@ -113,38 +133,26 @@ impl Display for TokenType {
 impl Display for Token {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
-            f, 
+            f,
             "{}, l_no: {}, s: {}, e:{}",
-            self.token_type,
-            self.line_no,
-            self.start,
-            self.end
+            self.token_type, self.line_no, self.start, self.end
         )
     }
 }
 
+/// The `Tokenizer` is responsible for lexical analysis. It takes a raw string
+/// input and breaks it down into a sequence of `Token`s.
+///
+/// It handles different types of tokens, including operators, numbers (integers,
+/// floats, scientific notation), parentheses, comments, and whitespace.
 pub struct Tokenizer {
     content: String,
     tokens: Vec<Token>,
 }
-fn make_error_msg(src: &str, line: usize, col: usize, found: char) -> String {
-    let line_str = src.lines().nth(line).unwrap_or("");
-    format!(
-        "Unexpected character '{}' at line {}, col {}
-{}
-{:>width$}^
-",
-        found,
-        line + 1,
-        col + 1,
-        line_str,
-        "",
-        width = col + 1
-    )
-}
+
 impl Debug for Tokenizer {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Tokenizer {{")?;
+        write!(f, "Tokenizer {{ ")?;
         write!(f, "content:\n{}\n", self.content)?;
         write!(f, "tokens:\n")?;
         for token in &self.tokens {
@@ -154,13 +162,20 @@ impl Debug for Tokenizer {
     }
 }
 impl Tokenizer {
+    /// Creates a new `Tokenizer` with the given input content.
     pub fn new(content: String) -> Tokenizer {
         Tokenizer {
             content,
             tokens: Vec::new(),
         }
     }
-    pub fn tokenize(&mut self) -> Result<Vec<Token>, String> {
+
+    /// Performs the tokenization of the input string.
+    ///
+    /// It iterates through the characters of the input string and constructs a
+    /// vector of `Token`s. It returns a `Result` containing the vector of tokens
+    /// or a `TokenizerError` if an unexpected character is found.
+    pub fn tokenize(&mut self) -> Result<Vec<Token>, TokenizerError> {
         let chars: Vec<char> = self.content.chars().collect();
         let len = chars.len();
 
@@ -174,64 +189,64 @@ impl Tokenizer {
 
             match c {
                 '+' => {
-                    tokens.push(Token::plus(line_no, col));
+                    tokens.push(Token::plus(line_no + 1, col + 1));
                     i += 1;
                     col += 1;
                 }
                 '-' => {
-                    tokens.push(Token::minus(line_no, col));
+                    tokens.push(Token::minus(line_no + 1, col + 1));
                     i += 1;
                     col += 1;
                 }
                 '/' => {
-                    tokens.push(Token::div(line_no, col));
+                    tokens.push(Token::div(line_no + 1, col + 1));
                     i += 1;
                     col += 1;
                 }
                 '*' => {
-                    tokens.push(Token::mul(line_no, col));
+                    tokens.push(Token::mul(line_no + 1, col + 1));
                     i += 1;
                     col += 1;
                 }
                 '(' => {
-                    tokens.push(Token::paran_open(line_no, col));
+                    tokens.push(Token::paran_open(line_no + 1, col + 1));
                     i += 1;
                     col += 1;
                 }
                 ')' => {
-                    tokens.push(Token::paran_close(line_no, col));
+                    tokens.push(Token::paran_close(line_no + 1, col + 1));
                     i += 1;
                     col += 1;
                 }
                 ';' => {
-                    // Read until newline
-                    let _start = i;
-                    let mut comment = String::new();
-                    i += 1;
-                    col += 1;
+                    // Comments run to the end of the line.
+                    let start_col = col;
+                    i += 1; // consume ';'
 
+                    let mut comment = String::new();
                     while i < len && chars[i] != '\n' {
                         comment.push(chars[i]);
                         i += 1;
-                        col += 1;
                     }
 
-                    tokens.push(Token::comment(&comment, line_no, col - comment.len()));
+                    col = start_col + 1 + comment.len();
+                    tokens.push(Token::comment(&comment, line_no + 1, start_col + 1));
                 }
 
                 '\n' => {
                     tokens.push(Token {
                         token_type: TokenType::Newline,
-                        line_no,
-                        start: col,
-                        end: col,
+                        line_no: line_no + 1,
+                        start: col + 1,
+                        end: col + 1,
                     });
                     i += 1;
                     col = 0;
                     line_no += 1;
                 }
                 c if c.is_ascii_digit() => {
-                    // Parse number (int or float)
+                    // Parse a number, which can be an integer, a float, or in
+                    // scientific notation.
                     let start_col = col;
                     let mut number = String::new();
                     let mut has_dot = false;
@@ -245,7 +260,7 @@ impl Tokenizer {
                         col += 1;
                     }
 
-                    // now check for scientific notation
+                    // Handle scientific notation (e.g., 1e-5, 2.5E+3).
                     if i < len && (chars[i] == 'e' || chars[i] == 'E') {
                         number.push(chars[i]);
                         i += 1;
@@ -264,20 +279,24 @@ impl Tokenizer {
                         }
                     }
 
-
-                    tokens.push(Token::number(&number, line_no, start_col));
+                    tokens.push(Token::number(&number, line_no + 1, start_col + 1));
                 }
                 c if c.is_whitespace() => {
-                    // Just skip whitespace (other than newline handled above)
+                    // Ignore whitespace characters (other than newlines).
                     i += 1;
                     col += 1;
                 }
                 _ => {
-                    return Err(make_error_msg(&self.content, line_no, col, chars[i]));
+                    log::debug!("DEBUG: Tokenizer line_no = {}, col = {}", line_no, col);
+                    return Err(TokenizerError::UnexpectedCharacter {
+                        found: chars[i],
+                        line: line_no + 1,
+                        col: col + 1,
+                    });
                 }
             }
         }
-        tokens.push(Token::eof(line_no, col));
+        tokens.push(Token::eof(line_no + 1, col + 1));
         self.tokens = tokens.clone();
         Ok(tokens)
     }
@@ -285,6 +304,7 @@ impl Tokenizer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::errors::TokenizerError;
 
     fn assert_tokenize_ok(input: &str, expected: Vec<Token>) {
         match Tokenizer::new(input.to_string()).tokenize() {
@@ -293,10 +313,13 @@ mod tests {
         }
     }
 
-    fn assert_tokenize_err(input: &str, expected_err: &str) {
+    fn assert_tokenize_err(input: &str, expected_err: TokenizerError) {
         match Tokenizer::new(input.to_string()).tokenize() {
-            Ok(tokens) => panic!("Tokenizing should have failed for input \"{}\", but got tokens: {:?}", input, tokens),
-            Err(e) => assert!(e.contains(expected_err)),
+            Ok(tokens) => panic!(
+                "Tokenizing should have failed for input \"{}\", but got tokens: {:?}",
+                input, tokens
+            ),
+            Err(e) => assert_eq!(e, expected_err),
         }
     }
 
@@ -305,10 +328,10 @@ mod tests {
         assert_tokenize_ok(
             "1+1",
             vec![
-                Token::number("1", 0, 0),
-                Token::plus(0, 1),
-                Token::number("1", 0, 2),
-                Token::eof(0, 3),
+                Token::number("1", 1, 1),
+                Token::plus(1, 2),
+                Token::number("1", 1, 3),
+                Token::eof(1, 4),
             ],
         );
     }
@@ -318,12 +341,12 @@ mod tests {
         assert_tokenize_ok(
             "(2*3)",
             vec![
-                Token::paran_open(0, 0),
-                Token::number("2", 0, 1),
-                Token::mul(0, 2),
-                Token::number("3", 0, 3),
-                Token::paran_close(0, 4),
-                Token::eof(0, 5),
+                Token::paran_open(1, 1),
+                Token::number("2", 1, 2),
+                Token::mul(1, 3),
+                Token::number("3", 1, 4),
+                Token::paran_close(1, 5),
+                Token::eof(1, 6),
             ],
         );
     }
@@ -333,10 +356,10 @@ mod tests {
         assert_tokenize_ok(
             "123+456",
             vec![
-                Token::number("123", 0, 0),
-                Token::plus(0, 3),
-                Token::number("456", 0, 4),
-                Token::eof(0, 7),
+                Token::number("123", 1, 1),
+                Token::plus(1, 4),
+                Token::number("456", 1, 5),
+                Token::eof(1, 8),
             ],
         );
     }
@@ -346,10 +369,10 @@ mod tests {
         assert_tokenize_ok(
             "3.14*2",
             vec![
-                Token::number("3.14", 0, 0),
-                Token::mul(0, 4),
-                Token::number("2", 0, 5),
-                Token::eof(0, 6),
+                Token::number("3.14", 1, 1),
+                Token::mul(1, 5),
+                Token::number("2", 1, 6),
+                Token::eof(1, 7),
             ],
         );
     }
@@ -359,11 +382,11 @@ mod tests {
         assert_tokenize_ok(
             "1+2;this is a comment",
             vec![
-                Token::number("1", 0, 0),
-                Token::plus(0, 1),
-                Token::number("2", 0, 2),
-                Token::comment("this is a comment", 0, 4),
-                Token::eof(0, 21),
+                Token::number("1", 1, 1),
+                Token::plus(1, 2),
+                Token::number("2", 1, 3),
+                Token::comment("this is a comment", 1, 4),
+                Token::eof(1, 22),
             ],
         );
     }
@@ -373,24 +396,24 @@ mod tests {
         assert_tokenize_ok(
             "1 + 2\n3",
             vec![
-                Token::number("1", 0, 0),
-                Token::plus(0, 2),
-                Token::number("2", 0, 4),
+                Token::number("1", 1, 1),
+                Token::plus(1, 3),
+                Token::number("2", 1, 5),
                 Token {
                     token_type: TokenType::Newline,
-                    line_no: 0,
-                    start: 5,
-                    end: 5,
+                    line_no: 1,
+                    start: 6,
+                    end: 6,
                 },
-                Token::number("3", 1, 0),
-                Token::eof(1, 1),
+                Token::number("3", 2, 1),
+                Token::eof(2, 2),
             ],
         );
     }
 
     #[test]
     fn test_empty_input() {
-        assert_tokenize_ok("", vec![Token::eof(0, 0)]);
+        assert_tokenize_ok("", vec![Token::eof(1, 1)]);
     }
 
     #[test]
@@ -398,29 +421,37 @@ mod tests {
         assert_tokenize_ok(
             "1+",
             vec![
-                Token::number("1", 0, 0),
-                Token::plus(0, 1),
-                Token::eof(0, 2),
+                Token::number("1", 1, 1),
+                Token::plus(1, 2),
+                Token::eof(1, 3),
             ],
         );
     }
 
     #[test]
     fn test_numbers_stuck_together() {
-        assert_tokenize_ok("123456", vec![Token::number("123456", 0, 0), Token::eof(0, 6)]);
+        assert_tokenize_ok(
+            "123456",
+            vec![Token::number("123456", 1, 1), Token::eof(1, 7)],
+        );
     }
 
     #[test]
     fn test_invalid_float_number() {
-        assert_tokenize_err("3.14.15", "Unexpected character");
+        assert_tokenize_err(
+            "3.14.15",
+            TokenizerError::UnexpectedCharacter {
+                found: '.',
+                line: 1,
+                col: 5,
+            },
+        );
     }
 
     #[test]
     fn test_scientific_notation() {
-        assert_tokenize_ok(
-            "1e-5",
-            vec![Token::number("1e-5", 0, 0), Token::eof(0, 4)],
-        );
+        assert_tokenize_ok("1e-5", vec![Token::number("1e-5", 1, 1), Token::eof(1, 5)]);
     }
 }
 
+// TODO: merge with git, fix 1 index. brand

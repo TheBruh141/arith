@@ -1,9 +1,8 @@
 use std::error::Error;
 use std::fmt;
-
+use crate::errors::{ParserError, TokenizerError};
 use crate::parser::{Expr, Parser};
 use crate::tokenizer::{TokenType, Tokenizer};
-use crate::errors::ParserError;
 
 /// Bytecode instructions
 #[derive(Debug, Clone)]
@@ -61,17 +60,40 @@ impl Error for ExecError {}
 /// Top-level evaluation error returned by the orchestrator
 #[derive(Debug)]
 pub enum EvalError {
-    Parse(ParserError),
-    Compile(CompileError),
-    Exec(ExecError),
+    Parse(ParserError, String),
+    Compile(CompileError, String),
+    Exec(ExecError, String),
 }
 
 impl fmt::Display for EvalError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            EvalError::Parse(e) => write!(f, "parse error: {}", e),
-            EvalError::Compile(e) => write!(f, "compile error: {}", e),
-            EvalError::Exec(e) => write!(f, "runtime error: {}", e),
+            EvalError::Parse(e, input) => {
+                let (line_num, col_num) = match e {
+                    ParserError::UnexpectedToken { line, col, .. } => (*line, *col),
+                    ParserError::UnexpectedEOF { line, col } => (*line, *col),
+                    ParserError::InvalidNumber { line, col, .. } => (*line, *col),
+                    ParserError::TokenizerError { line, col, .. } => (*line, *col),
+                };
+
+                // Debug print line_num and col_num
+                eprintln!("DEBUG: line_num = {}, col_num = {}", line_num, col_num);
+
+                let line_content = input.lines().nth(line_num - 1).unwrap_or("");
+                let pointer = " ".repeat(col_num - 1) + "^";
+
+                write!(
+                    f,
+                    "Error: {}\n{} | {}\n{} | {}",
+                    e,
+                    line_num,
+                    line_content,
+                    " ".repeat(line_num.to_string().len()),
+                    pointer
+                )
+            }
+            EvalError::Compile(e, input) => write!(f, "compile error: {} in input: {}", e, input),
+            EvalError::Exec(e, input) => write!(f, "runtime error: {} in input: {}", e, input),
         }
     }
 }
@@ -131,6 +153,10 @@ impl BytecodeCompiler {
             }
             Expr::Empty => {
                 // Do nothing, produce no bytecode.
+                Ok(())
+            }
+            Expr::EmptyParen => {
+                code.push(Instr::Push(0.0));
                 Ok(())
             }
         }
@@ -239,25 +265,35 @@ pub fn evaluate_lines(input: &str) -> Vec<Result<f64, EvalError>> {
         }
     }
 
-    // If acc still has something (last line ended with backslash but no following line)
+    // If acc still has something (last line ended with backslash but no following line),
+    // we discard it as it's an incomplete expression.
     if !acc.is_empty() {
-        joined_lines.push(acc);
+        // Optionally, you could return an error here for incomplete input.
+        // For now, we just ignore it.
     }
 
     // Evaluate each joined line separately
     let mut results = Vec::new();
     let executor = SimpleExecutor::new();
 
-    for line in joined_lines {
-        let trimmed = line.trim();
+    for line_str in joined_lines {
+        let trimmed = line_str.trim();
         if trimmed.is_empty() {
             continue;
         }
 
         let tokens = match Tokenizer::new(trimmed.to_string()).tokenize() {
             Ok(tokens) => tokens,
-            Err(e) => {
-                results.push(Err(EvalError::Parse(ParserError::TokenizerError(e))));
+            Err(TokenizerError::UnexpectedCharacter { found, line, col }) => {
+                eprintln!("DEBUG: TokenizerError line = {}, col = {}", line, col);
+                results.push(Err(EvalError::Parse(
+                    ParserError::TokenizerError {
+                        message: format!("Unexpected character '{}'", found),
+                        line,
+                        col,
+                    },
+                    input.to_string(),
+                )));
                 continue;
             }
         };
@@ -269,15 +305,15 @@ pub fn evaluate_lines(input: &str) -> Vec<Result<f64, EvalError>> {
                         if !code.is_empty() {
                             match executor.execute(&code) {
                                 Ok(v) => results.push(Ok(v)),
-                                Err(e) => results.push(Err(EvalError::Exec(e))),
+                                Err(e) => results.push(Err(EvalError::Exec(e, input.to_string()))),
                             }
                         }
                     }
-                    Err(e) => results.push(Err(EvalError::Compile(e))),
+                    Err(e) => results.push(Err(EvalError::Compile(e, input.to_string()))),
                 }
             }
             Err(e) => {
-                results.push(Err(EvalError::Parse(e)));
+                results.push(Err(EvalError::Parse(e, input.to_string())));
             }
         }
     }
