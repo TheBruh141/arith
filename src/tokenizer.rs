@@ -452,6 +452,11 @@ mod tests {
     fn test_scientific_notation() {
         assert_tokenize_ok("1e-5", vec![Token::number("1e-5", 1, 1), Token::eof(1, 5)]);
     }
+
+    #[test]
+    fn test_whitespace_only_input() {
+        assert_tokenize_ok("   ", vec![Token::eof(1, 4)]);
+    }
 }
 
 // TODO: merge with git, fix 1 index. brand

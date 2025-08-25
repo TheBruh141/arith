@@ -1,0 +1,3 @@
+10 / 0 ; Division by zero
+5 + * 2 ; Syntax error
+(1 + 2 ; Missing parenthesis

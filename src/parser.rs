@@ -53,10 +53,14 @@ pub(crate) struct Parser {
 }
 
 impl Parser {
-    /// Creates a new `Parser`.
+    /// Creates a new `Parser` instance.
     ///
-    /// It filters out comments and newlines from the token stream, as they are
-    /// not relevant to the parsing logic.
+    /// It initializes the parser with a vector of tokens obtained from the tokenizer.
+    /// It filters out `Comment` and `Newline` tokens as they are not relevant
+    /// for the parsing logic and are handled at a higher level (e.g., in `evaluate_lines`).
+    ///
+    /// # Arguments
+    /// * `tokens` - A `Vec<Token>` representing the token stream to be parsed.
     pub fn new(tokens: Vec<Token>) -> Self {
         let filtered_tokens: Vec<Token> = tokens
             .into_iter()
@@ -68,21 +72,31 @@ impl Parser {
         }
     }
 
-    /// Returns the current token without consuming it.
+    /// Returns a reference to the current token without advancing the parser's position.
+    ///
+    /// This is useful for "peeking" at the next token to decide parsing strategy.
     fn current(&self) -> &Token {
         &self.tokens[self.pos]
     }
 
-    /// Advances the parser to the next token.
+    /// Advances the parser's position to the next token in the stream.
+    ///
+    /// This method should be called after a token has been successfully consumed.
     fn advance(&mut self) {
         if self.pos < self.tokens.len() - 1 {
             self.pos += 1;
         }
     }
 
-    /// Parses the entire token stream and returns the root of the AST.
+    /// Parses the entire token stream and returns the root of the Abstract Syntax Tree (AST).
     ///
-    /// If the input is empty (only an EOF token), it returns `Expr::Empty`.
+    /// This is the main entry point for the parsing process.
+    ///
+    /// # Returns
+    /// A `Result` which is `Ok` containing an `Expr` representing the parsed AST,
+    /// or `Err` containing a `ParserError` if a syntax error is encountered.
+    /// If the input token stream consists only of an `EOF` token (e.g., from an empty input string),
+    /// it returns `Expr::Empty`.
     pub fn parse(&mut self) -> Result<Expr, ParserError> {
         if matches!(self.current().get_type(), TokenType::EOF) {
             return Ok(Expr::Empty);
@@ -93,7 +107,8 @@ impl Parser {
     /// Parses expressions with the lowest precedence (addition and subtraction).
     ///
     /// This method forms the entry point for parsing expressions and handles
-    /// left-associative binary operators `+` and `-`.
+    /// left-associative binary operators `+` and `-`. It recursively calls
+    /// `parse_term` to handle higher precedence operations.
     ///
     /// Grammar rule: `expression = term, { (PLUS | MINUS), term } `;
     fn parse_expr(&mut self) -> Result<Expr, ParserError> {
@@ -119,7 +134,8 @@ impl Parser {
     /// Parses expressions with higher precedence (multiplication and division).
     ///
     /// This method handles left-associative binary operators `*` and `/`, as
-    /// well as implicit multiplication (e.g., `3(5)` or `(2)(3)`).
+    /// well as implicit multiplication (e.g., `3(5)` or `(2)(3)`). It recursively
+    /// calls `parse_factor` to handle the highest precedence elements.
     ///
     /// Grammar rule: `term = factor, { (MUL | DIV), factor | factor } `;
     fn parse_term(&mut self) -> Result<Expr, ParserError> {
@@ -159,7 +175,8 @@ impl Parser {
 
     /// Parses the highest precedence expressions (factors).
     ///
-    /// Factors include numbers, parenthesized expressions, and unary operators.
+    /// Factors include literal numbers, parenthesized expressions, and unary operators.
+    /// This method is the base case for the recursive descent parsing.
     ///
     /// Grammar rule:
     /// `factor = NUMBER | LPAREN, [expression], RPAREN | (PLUS | MINUS), factor `;
@@ -220,19 +237,38 @@ mod parser_tests {
     use super::*;
     use crate::tokenizer::Tokenizer;
 
+    /// Helper function to parse an input string and return the resulting AST or an error.
+    ///
+    /// # Arguments
+    /// * `input` - The string to tokenize and parse.
+    ///
+    /// # Returns
+    /// A `Result` containing the parsed `Expr` on success, or a `ParserError` on failure.
     fn parse_ok(input: &str) -> Result<Expr, ParserError> {
         let mut tokenizer = Tokenizer::new(input.to_string());
-        let tokens = tokenizer.tokenize().unwrap(); // This unwrap is in a test, which is acceptable.
+        // In tests, unwrapping is acceptable for convenience if the tokenizer is assumed correct.
+        let tokens = tokenizer.tokenize().unwrap();
         let mut parser = Parser::new(tokens);
         parser.parse()
     }
 
+    /// Helper assertion function for tests that expect successful parsing.
+    ///
+    /// Panics if parsing fails or the resulting AST does not match the expected one.
+    ///
+    /// # Arguments
+    /// * `input` - The string to parse.
+    /// * `expected` - The expected `Expr` (AST) after parsing.
     fn assert_parse_ok(input: &str, expected: Expr) {
         match parse_ok(input) {
             Ok(expr) => assert_eq!(expr, expected),
             Err(e) => panic!("Parsing failed for input '{}': {}", input, e),
         }
     }
+
+    // Individual test cases for parser functionality.
+    // These tests cover various aspects of the parser, including operator precedence,
+    // associativity, unary operations, parentheses, and implicit multiplication.
 
     #[test]
     fn test_simple_number() {
@@ -398,7 +434,8 @@ mod parser_tests {
     #[test]
     fn test_line_starting_with_comment() {
         assert_parse_ok(
-            ";this is a comment\n1+2",
+            r#";this is a comment
+1+2"#,
             Expr::BinaryOp {
                 left: Box::new(Expr::Number(1.0)),
                 op: TokenType::Plus,

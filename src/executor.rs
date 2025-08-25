@@ -1,26 +1,44 @@
+//! This module is responsible for the compilation and execution of arithmetic expressions.
+//!
+//! It defines the bytecode instructions, a compiler to transform the Abstract Syntax Tree (AST)
+//! into bytecode, and a simple stack-based executor to evaluate the bytecode.
+//! It also orchestrates the entire evaluation pipeline, from raw input string to final result,
+//! handling line continuations, comments, and comprehensive error reporting.
+
 use std::error::Error;
 use std::fmt;
 use crate::errors::{ParserError, TokenizerError};
 use crate::parser::{Expr, Parser};
 use crate::tokenizer::{TokenType, Tokenizer};
 
-/// Bytecode instructions
+/// Represents a single bytecode instruction.
+///
+/// These instructions form a simple stack-based language used by the `SimpleExecutor`.
 #[derive(Debug, Clone)]
 pub enum Instr {
+    /// Pushes a floating-point number onto the stack.
     Push(f64),
+    /// Pops two numbers, adds them, and pushes the result.
     Add,
+    /// Pops two numbers, subtracts the second from the first, and pushes the result.
     Sub,
+    /// Pops two numbers, multiplies them, and pushes the result.
     Mul,
+    /// Pops two numbers, divides the first by the second, and pushes the result.
     Div,
+    /// Pops one number, negates it, and pushes the result.
     Neg,
 }
 
 /// Errors that can happen during compilation (AST -> bytecode)
 #[derive(Debug)]
 pub enum CompileError {
+    /// An operator was encountered in the AST that is not supported by the bytecode compiler.
     UnsupportedOperator(String),
 }
 
+/// Implements the `Display` trait for `CompileError`, allowing it to be
+/// easily formatted as a user-friendly string.
 impl fmt::Display for CompileError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -33,15 +51,21 @@ impl fmt::Display for CompileError {
 
 impl Error for CompileError {}
 
-/// Errors that can happen during execution of bytecode
+/// Errors that can happen during execution of bytecode by the `SimpleExecutor`.
 #[derive(Debug)]
 pub enum ExecError {
+    /// The executor attempted to pop a value from an empty stack.
     StackUnderflow { instr: String },
+    /// A division by zero operation was attempted.
     DivisionByZero,
+    /// The execution finished, but no result was left on the stack.
     NoResult,
+    /// A generic execution error with a descriptive message.
     Other(String),
 }
 
+/// Implements the `Display` trait for `ExecError`, allowing it to be
+/// easily formatted as a user-friendly string.
 impl fmt::Display for ExecError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -57,38 +81,52 @@ impl fmt::Display for ExecError {
 
 impl Error for ExecError {}
 
-/// Top-level evaluation error returned by the orchestrator
+/// Top-level evaluation error returned by the orchestrator (`evaluate_lines`).
+///
+/// This enum wraps errors from different stages of the interpretation pipeline
+/// (parsing, compilation, execution) and provides additional context like
+/// the original line content and absolute line number for better error reporting.
 #[derive(Debug)]
 pub enum EvalError {
-    Parse(ParserError, String),
+    /// An error occurred during the parsing phase.
+    /// Contains the `ParserError`, the original line string, and the original line offset.
+    Parse(ParserError, String, usize),
+    /// An error occurred during the bytecode compilation phase.
+    /// Contains the `CompileError` and the input string that caused the error.
     Compile(CompileError, String),
+    /// An error occurred during the bytecode execution phase.
+    /// Contains the `ExecError` and the input string that caused the error.
     Exec(ExecError, String),
 }
 
+/// Implements the `Display` trait for `EvalError`, providing a comprehensive
+/// and user-friendly error message that includes the error type, location,
+/// and a snippet of the problematic code.
 impl fmt::Display for EvalError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            EvalError::Parse(e, input) => {
-                let (line_num, col_num) = match e {
+            EvalError::Parse(e, line_str, original_line_offset) => {
+                let (relative_line_num, col_num) = match e {
                     ParserError::UnexpectedToken { line, col, .. } => (*line, *col),
                     ParserError::UnexpectedEOF { line, col } => (*line, *col),
                     ParserError::InvalidNumber { line, col, .. } => (*line, *col),
                     ParserError::TokenizerError { line, col, .. } => (*line, *col),
                 };
 
-                // Debug print line_num and col_num
-                eprintln!("DEBUG: line_num = {}, col_num = {}", line_num, col_num);
+                // Calculate the absolute line number in the original file
+                let absolute_line_num = original_line_offset + relative_line_num - 1; // -1 because relative_line_num is 1-based
 
-                let line_content = input.lines().nth(line_num - 1).unwrap_or("");
+                // The line_content is now the line_str itself, as the error is relative to it
+                let line_content = line_str;
                 let pointer = " ".repeat(col_num - 1) + "^";
 
                 write!(
                     f,
                     "Error: {}\n{} | {}\n{} | {}",
                     e,
-                    line_num,
+                    absolute_line_num,
                     line_content,
-                    " ".repeat(line_num.to_string().len()),
+                    " ".repeat(absolute_line_num.to_string().len()),
                     pointer
                 )
             }
@@ -100,17 +138,41 @@ impl fmt::Display for EvalError {
 
 impl Error for EvalError {}
 
+
 /// Compiler that lowers AST -> Vec<Instr>
+///
+/// This component takes an Abstract Syntax Tree (`Expr`) and translates it
+/// into a sequence of bytecode instructions (`Instr`) that can be executed
+/// by the `SimpleExecutor`.
 pub struct BytecodeCompiler;
 
 impl BytecodeCompiler {
-    /// Compile an expression into bytecode. Returns CompileError if some AST node can't be compiled.
+    /// Compiles an expression into a vector of bytecode instructions.
+    ///
+    /// This function traverses the AST recursively, emitting appropriate
+    /// bytecode instructions for each node.
+    ///
+    /// # Arguments
+    /// * `expr` - A reference to the `Expr` (AST node) to compile.
+    ///
+    /// # Returns
+    /// A `Result` which is `Ok` containing a `Vec<Instr>` on successful compilation,
+    /// or `Err` containing a `CompileError` if an unsupported AST node is encountered.
     pub fn compile(expr: &Expr) -> Result<Vec<Instr>, CompileError> {
         let mut code = Vec::new();
         Self::compile_expr(expr, &mut code)?;
         Ok(code)
     }
 
+    /// Recursively compiles an `Expr` node and appends its bytecode to the given vector.
+    ///
+    /// # Arguments
+    /// * `expr` - A reference to the `Expr` (AST node) to compile.
+    /// * `code` - A mutable reference to the vector where generated instructions will be appended.
+    ///
+    /// # Returns
+    /// A `Result` which is `Ok(())` on successful compilation of the current node,
+    /// or `Err` containing a `CompileError` if an unsupported operator is found.
     fn compile_expr(expr: &Expr, code: &mut Vec<Instr>) -> Result<(), CompileError> {
         match expr {
             Expr::Number(n) => {
@@ -163,15 +225,28 @@ impl BytecodeCompiler {
     }
 }
 
-/// Simple stack-based executor. Stateless: execute a slice of instructions and return a result.
+/// A simple stack-based executor for `arith` bytecode.
+///
+/// This executor is stateless and evaluates a given slice of `Instr` (bytecode)
+/// to produce a single floating-point result.
 pub struct SimpleExecutor;
 
 impl SimpleExecutor {
+    /// Creates a new `SimpleExecutor`.
     pub fn new() -> Self {
         SimpleExecutor
     }
 
-    /// Execute instructions and return top-of-stack result or ExecError.
+    /// Executes a sequence of bytecode instructions.
+    ///
+    /// The executor maintains an internal stack for intermediate calculations.
+    ///
+    /// # Arguments
+    /// * `instructions` - A slice of `Instr` to be executed.
+    ///
+    /// # Returns
+    /// A `Result` which is `Ok` containing the final `f64` result on successful execution,
+    /// or `Err` containing an `ExecError` if a runtime error occurs (e.g., stack underflow, division by zero).
     pub fn execute(&self, instructions: &[Instr]) -> Result<f64, ExecError> {
         let mut stack: Vec<f64> = Vec::with_capacity(16);
 
@@ -233,50 +308,68 @@ impl SimpleExecutor {
     }
 }
 
-/// Orchestrator: preprocesses backslash continuations and evaluates each non-empty line.
-/// Returns Vec<Result<f64, EvalError>> where each entry corresponds to a line's evaluation.
-pub fn evaluate_lines(input: &str) -> Vec<Result<f64, EvalError>> {
-    // Preprocess: join lines that end with backslash `\`
-    let mut joined_lines: Vec<String> = Vec::new();
-    let mut acc = String::new();
+/// Orchestrates the entire evaluation process for a multi-line input string.
+///
+/// This function handles line continuations (lines ending with `\`),
+/// removes comments, tokenizes each logical expression, parses it into an AST,
+/// compiles the AST into bytecode, and finally executes the bytecode.
+///
+/// It processes the input line by line, accumulating lines that end with a backslash
+/// into a single logical expression. Each logical expression is then evaluated independently.
+///
+/// # Arguments
+/// * `input` - The multi-line input string containing arithmetic expressions.
+///
+/// # Returns
+/// A `Vec` of `Result`s, where each `Result` corresponds to the evaluation of one
+/// logical expression. An `Ok` variant contains a tuple of the `f64` result and
+/// the original expression string. An `Err` variant contains an `EvalError`
+/// providing details about the error.
+pub fn evaluate_lines(input: &str) -> Vec<Result<(f64, String), EvalError>> {
+    let mut joined_expressions: Vec<(String, usize)> = Vec::new();
+    let mut current_expression_buffer = String::new();
+    let mut current_expression_start_line = 0;
 
-    for raw_line in input.lines() {
-        let mut line = raw_line.trim_end().to_string();
-        if line.ends_with('\\') {
-            // remove trailing backslash and append (keep a space to separate tokens)
-            line.pop(); // remove '\'
-            if !acc.is_empty() {
-                acc.push(' ');
-            }
-            acc.push_str(line.trim());
-            // continue accumulating
+    for (idx, raw_line) in input.lines().enumerate() {
+        let line_num = idx + 1; // 1-based line number
+
+        // Remove comments
+        let line_without_comment = raw_line.split(';').next().unwrap_or("").to_string();
+
+        let trimmed_line_content = line_without_comment.trim(); // Trim all whitespace
+
+        if current_expression_buffer.is_empty() {
+            current_expression_start_line = line_num;
+        }
+
+        if trimmed_line_content.ends_with('\\') {
+            // This line continues the expression
+            current_expression_buffer.push_str(&trimmed_line_content[0..trimmed_line_content.len() - 1].trim());
+            current_expression_buffer.push(' '); // Add a space for token separation
         } else {
-            if !acc.is_empty() {
-                // we had accumulated lines
-                if !acc.is_empty() {
-                    acc.push(' ');
-                }
-                acc.push_str(line.trim());
-                joined_lines.push(acc.clone());
-                acc.clear();
-            } else {
-                joined_lines.push(line.trim().to_string());
+            // This line completes an expression or is a single-line expression
+            current_expression_buffer.push_str(trimmed_line_content); // Add the content of the current line
+
+            // Only push if the accumulated expression is not empty or just whitespace
+            if !current_expression_buffer.trim().is_empty() {
+                joined_expressions.push((current_expression_buffer.clone(), current_expression_start_line));
             }
+            current_expression_buffer.clear();
+            current_expression_start_line = 0; // Reset
         }
     }
 
-    // If acc still has something (last line ended with backslash but no following line),
-    // we discard it as it's an incomplete expression.
-    if !acc.is_empty() {
-        // Optionally, you could return an error here for incomplete input.
-        // For now, we just ignore it.
+    // Handle any remaining accumulated expression if the file ends with a backslash
+    // and it's not just whitespace
+    if !current_expression_buffer.is_empty() && !current_expression_buffer.trim().is_empty() {
+        joined_expressions.push((current_expression_buffer.clone(), current_expression_start_line));
     }
 
     // Evaluate each joined line separately
     let mut results = Vec::new();
     let executor = SimpleExecutor::new();
 
-    for line_str in joined_lines {
+    for (line_str, original_line_offset) in joined_expressions {
         let trimmed = line_str.trim();
         if trimmed.is_empty() {
             continue;
@@ -292,7 +385,8 @@ pub fn evaluate_lines(input: &str) -> Vec<Result<f64, EvalError>> {
                         line,
                         col,
                     },
-                    input.to_string(),
+                    line_str.to_string(), // Pass the specific line string
+                    original_line_offset,
                 )));
                 continue;
             }
@@ -304,16 +398,16 @@ pub fn evaluate_lines(input: &str) -> Vec<Result<f64, EvalError>> {
                     Ok(code) => {
                         if !code.is_empty() {
                             match executor.execute(&code) {
-                                Ok(v) => results.push(Ok(v)),
-                                Err(e) => results.push(Err(EvalError::Exec(e, input.to_string()))),
+                                Ok(v) => results.push(Ok((v, line_str.to_string()))),
+                                Err(e) => results.push(Err(EvalError::Exec(e, line_str.to_string()))),
                             }
                         }
                     }
-                    Err(e) => results.push(Err(EvalError::Compile(e, input.to_string()))),
+                    Err(e) => results.push(Err(EvalError::Compile(e, line_str.to_string()))),
                 }
             }
             Err(e) => {
-                results.push(Err(EvalError::Parse(e, input.to_string())));
+                results.push(Err(EvalError::Parse(e, line_str.to_string(), original_line_offset))); // Pass the specific line string and offset
             }
         }
     }
