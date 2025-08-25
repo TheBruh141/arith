@@ -1,130 +1,30 @@
-use std::io::{self, Write};
-use arith::executor::evaluate_lines;
-use std::fs::File;
-use std::path::Path;
-use log::{error, LevelFilter};
+use arith::repl::run_repl;
+use clap::Parser;
 use env_logger::{Builder, Env};
+use log::LevelFilter;
 
-pub fn run_repl() -> io::Result<()> {
-    println!("arith REPL — enter expressions. Use \\ for line-continuation. :q to quit.");
+use arith::filemode;
 
-    let mut acc = String::new(); // accumulates current statement (may span lines)
+#[derive(Parser)]
+#[command(version, about, long_about = "... TODO!")]
+struct Cli {
+    /// Turn debugging information on
+    #[arg(short, long, action = clap::ArgAction::Count)]
+    debug: u8,
 
-    loop {
-        // Primary prompt when empty, secondary when continuing
-        if acc.is_empty() {
-            print!(">> ");
-        } else {
-            print!("... ");
-        }
-        io::stdout().flush()?;
-
-        // Read one line
-        let mut line = String::new();
-        let n = io::stdin().read_line(&mut line)?;
-        if n == 0 {
-            // EOF (Ctrl-D). If mid-statement, try to evaluate whatever we have.
-            if !acc.trim().is_empty() {
-                eval_and_print(&acc);
-            }
-            println!();
-            break;
-        }
-
-        let trimmed = line.trim_end();
-
-        // Commands only work at the start of a statement
-        if acc.is_empty() {
-            match trimmed {
-                ":q" | ":quit" | ":exit" => break,
-                ":h" | ":help" => {
-                    println!("Commands: :q to quit, :help for this. Use \\ to continue lines.");
-                    continue;
-                }
-                cmd if cmd.starts_with(":save") || cmd.starts_with(":w") || cmd.starts_with(":wq") => {
-                    let parts: Vec<&str> = cmd.splitn(2, ' ').collect();
-                    let filename = if parts.len() > 1 && !parts[1].is_empty() {
-                        parts[1].trim()
-                    } else {
-                        "history"
-                    };
-
-                    if let Err(e) = save_output(filename, &acc) {
-                        error!("Error saving output: {}", e);
-                    }
-                    acc.clear();
-                    if cmd.starts_with(":wq") {
-                        break;
-                    }
-                    continue;
-                }
-                _ => {}
-            }
-        }
-
-        // Append the line to the accumulator (keep the newline; your preprocessor handles it)
-        acc.push_str(trimmed);
-        acc.push('\n');
-
-        // If the visible line (ignoring trailing spaces) ends with a backslash, keep collecting
-        let ends_with_backslash = trimmed.trim_end().ends_with('\\');
-
-        if !ends_with_backslash {
-            // We’ve got a complete statement (or multiple statements pasted at once).
-            eval_and_print(&acc);
-            acc.clear();
-        }
-    }
-
-    Ok(())
-}
-
-fn save_output(filename: &str, content: &str) -> io::Result<()> {
-    let mut file_path = filename.to_string();
-
-    // Handle double extensions
-    if file_path.ends_with(".arith.arith") {
-        file_path = file_path.strip_suffix(".arith").unwrap().to_string();
-    } else if !file_path.ends_with(".arith") {
-        file_path.push_str(".arith");
-    }
-
-    let path = Path::new(&file_path);
-    let mut file = File::create(&path)?;
-    file.write_all(content.as_bytes())?;
-    println!("Output saved to {}", file_path);
-    Ok(())
-}
-
-fn eval_and_print(input: &str) {
-    // Your orchestrator can accept multiple logical lines; we'll pass the whole chunk.
-    let results = evaluate_lines(input);
-
-    // Print each result on its own line in order
-    for res in results {
-        match res {
-            Ok(v) => println!("= {}", fmt_num(v)),
-            Err(e) => error!("! {}", e), // assumes EvalError: Display
-        }
-    }
-}
-
-/// Format f64 without silly trailing zeros.
-fn fmt_num(x: f64) -> String {
-    // Show as integer if it is exactly an integer, else as trimmed float
-    if x.fract() == 0.0 && x.is_finite() {
-        format!("{}", x as i64)
-    } else {
-        // 15 sig figs is a decent default without getting noisy
-        let s = format!("{:.15}", x);
-        // trim trailing zeros and possible trailing dot
-        let s = s.trim_end_matches('0').trim_end_matches('.');
-        s.to_string()
-    }
+    #[arg(short, long)]
+    files: Vec<String>,
 }
 
 fn main() -> std::io::Result<()> {
+    let args = Cli::parse();
     Builder::from_env(Env::default().default_filter_or("debug")).init();
     log::set_max_level(LevelFilter::Debug);
-    run_repl()
+
+    if args.files.is_empty() {
+        run_repl()
+    } else {
+        filemode::run_file_mode(args.files) // Call the new orchestrator
+    }
 }
+
