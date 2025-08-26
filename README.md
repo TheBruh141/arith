@@ -1,7 +1,15 @@
 # arith: A Simple Command-Line Arithmetic Interpreter
 
+[![Build Status](https://github.com/TheBruh141/arith/actions/workflows/release.yml/badge.svg)](https://github.com/TheBruh141/arith/actions/workflows/release.yml)
+[![Crates.io](https://img.shields.io/crates/v/arith.svg)](https://crates.io/crates/arith)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
+![GitHub stars](https://img.shields.io/github/stars/TheBruh141/arith?style=social)
+![GitHub forks](https://img.shields.io/github/forks/TheBruh141/arith?style=social)
+![GitHub last commit](https://img.shields.io/github/last-commit/TheBruh141/arith)
+![GitHub contributors](https://img.shields.io/github/contributors/TheBruh141/arith)
+![arith logo.svg](images/arith%20logo.svg#gh-light-mode-only)
+![arith logo-darkmode.svg](images/arith%20logo-darkmode.svg#gh-darkmode-only)
 `arith` is a lightweight and efficient command-line interpreter for arithmetic expressions, built with Rust. It provides a simple yet powerful way to evaluate mathematical expressions directly from your terminal, supporting basic operations, operator precedence, implicit multiplication, and an interactive Read-Eval-Print Loop (REPL).
 
 ## ✨ Features
