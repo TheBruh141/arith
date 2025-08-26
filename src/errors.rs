@@ -26,10 +26,7 @@ pub enum ParserError {
     ///
     /// `line`: The 1-based line number where the unexpected EOF occurred.
     /// `col`: The 1-based column number where the unexpected EOF occurred.
-    UnexpectedEOF {
-        line: usize,
-        col: usize,
-    },
+    UnexpectedEOF { line: usize, col: usize },
     /// A number literal was found but could not be parsed into a valid floating-point number.
     ///
     /// `value`: The string representation of the invalid number.
@@ -77,7 +74,11 @@ impl fmt::Display for TokenizerError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             TokenizerError::UnexpectedCharacter { found, line, col } => {
-                write!(f, "Unexpected character '{}' at line {}, col {}", found, line, col)
+                write!(
+                    f,
+                    "Unexpected character '{}' at line {}, col {}",
+                    found, line, col
+                )
             }
         }
     }
@@ -89,7 +90,11 @@ impl fmt::Display for ParserError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ParserError::UnexpectedToken { found, line, col } => {
-                write!(f, "Unexpected token: found {} at line {}, col {}", found, line, col)
+                write!(
+                    f,
+                    "Unexpected token: found {} at line {}, col {}",
+                    found, line, col
+                )
             }
             ParserError::UnexpectedEOF { line, col } => {
                 write!(f, "Unexpected end of input at line {}, col {}", line, col)
@@ -98,7 +103,11 @@ impl fmt::Display for ParserError {
                 write!(f, "Invalid number: {} at line {}, col {}", value, line, col)
             }
             ParserError::TokenizerError { message, line, col } => {
-                write!(f, "Tokenizer error: {} at line {}, col {}", message, line, col)
+                write!(
+                    f,
+                    "Tokenizer error: {} at line {}, col {}",
+                    message, line, col
+                )
             }
         }
     }

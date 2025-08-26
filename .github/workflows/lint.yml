@@ -1,0 +1,36 @@
+on:
+  pull_request:
+
+jobs:
+  auto-fix:
+    name: Auto Fix Lints & Format
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: dtolnay/rust-toolchain@nightly
+      - run: rustup component add rustfmt clippy
+
+      - name: Run cargo fix and format
+        run: |
+          cargo fix --allow-dirty --allow-staged
+          cargo clippy --fix --allow-dirty --allow-staged
+          cargo fmt --all
+
+      - name: Commit and push changes
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          if [ -n "$(git status --porcelain)" ]; then
+            git add .
+            git commit -m "chore: auto-fix lint and format"
+            git push
+          else
+            echo "No changes to commit"
+          fi

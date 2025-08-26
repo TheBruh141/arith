@@ -13,13 +13,25 @@ pub enum ASTNode {
     /// Represents a variable. (Currently unused in the main interpreter flow).
     Variable(String),
     /// Represents an addition operation. (Currently unused in the main interpreter flow).
-    Addition { left: Box<ASTNode>, right: Box<ASTNode> },
+    Addition {
+        left: Box<ASTNode>,
+        right: Box<ASTNode>,
+    },
     /// Represents a subtraction operation. (Currently unused in the main interpreter flow).
-    Subtraction { left: Box<ASTNode>, right: Box<ASTNode> },
+    Subtraction {
+        left: Box<ASTNode>,
+        right: Box<ASTNode>,
+    },
     /// Represents a multiplication operation. (Currently unused in the main interpreter flow).
-    Multiplication { left: Box<ASTNode>, right: Box<ASTNode> },
+    Multiplication {
+        left: Box<ASTNode>,
+        right: Box<ASTNode>,
+    },
     /// Represents a division operation. (Currently unused in the main interpreter flow).
-    Division { left: Box<ASTNode>, right: Box<ASTNode> },
+    Division {
+        left: Box<ASTNode>,
+        right: Box<ASTNode>,
+    },
     /// Represents a unary minus operation. (Currently unused in the main interpreter flow).
     UnaryMinus(Box<ASTNode>),
     // FunctionCall { name: String, args: Vec<Node> }, // Example of a potential future extension

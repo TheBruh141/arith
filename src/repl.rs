@@ -5,12 +5,12 @@
 //! print the results. It supports multi-line input, special commands, and
 //! basic error reporting.
 
+use crate::executor::evaluate_lines;
+use log::error;
 use std::fs::File;
 use std::io::{self, Write};
 use std::path::Path;
 use std::time::Instant;
-use log::error;
-use crate::executor::evaluate_lines;
 
 /// Runs the interactive Read-Eval-Print Loop (REPL) for the `arith` interpreter.
 ///
@@ -70,10 +70,16 @@ pub fn run_repl() -> io::Result<()> {
                     println!("Benchmarking {}:", expression);
                     println!("  Iterations: {}", num_iterations);
                     println!("  Total time: {:?}", elapsed_time);
-                    println!("  Average time per evaluation: {:?}", elapsed_time / num_iterations);
+                    println!(
+                        "  Average time per evaluation: {:?}",
+                        elapsed_time / num_iterations
+                    );
                     continue;
                 }
-                cmd if cmd.starts_with(":save") || cmd.starts_with(":w") || cmd.starts_with(":wq") => {
+                cmd if cmd.starts_with(":save")
+                    || cmd.starts_with(":w")
+                    || cmd.starts_with(":wq") =>
+                {
                     let parts: Vec<&str> = cmd.splitn(2, ' ').collect();
                     let filename = if parts.len() > 1 && !parts[1].is_empty() {
                         parts[1].trim()

@@ -5,7 +5,7 @@
 //! or file processing mode based on the provided arguments.
 
 use arith::repl::run_repl;
-use clap::{Parser, Subcommand, CommandFactory};
+use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::{generate, shells};
 use env_logger::{Builder, Env};
 use log::LevelFilter;
@@ -75,6 +75,3 @@ fn main() -> std::io::Result<()> {
         filemode::run_file_mode(args.files) // Call the new orchestrator
     }
 }
-
-
-

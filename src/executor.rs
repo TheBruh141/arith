@@ -5,11 +5,11 @@
 //! It also orchestrates the entire evaluation pipeline, from raw input string to final result,
 //! handling line continuations, comments, and comprehensive error reporting.
 
-use std::error::Error;
-use std::fmt;
 use crate::errors::{ParserError, TokenizerError};
 use crate::parser::{Expr, Parser};
 use crate::tokenizer::{TokenType, Tokenizer};
+use std::error::Error;
+use std::fmt;
 
 /// Represents a single bytecode instruction.
 ///
@@ -137,7 +137,6 @@ impl fmt::Display for EvalError {
 }
 
 impl Error for EvalError {}
-
 
 /// Compiler that lowers AST -> Vec<Instr>
 ///
@@ -344,7 +343,8 @@ pub fn evaluate_lines(input: &str) -> Vec<Result<(f64, String), EvalError>> {
 
         if trimmed_line_content.ends_with('\\') {
             // This line continues the expression
-            current_expression_buffer.push_str(&trimmed_line_content[0..trimmed_line_content.len() - 1].trim());
+            current_expression_buffer
+                .push_str(&trimmed_line_content[0..trimmed_line_content.len() - 1].trim());
             current_expression_buffer.push(' '); // Add a space for token separation
         } else {
             // This line completes an expression or is a single-line expression
@@ -352,7 +352,10 @@ pub fn evaluate_lines(input: &str) -> Vec<Result<(f64, String), EvalError>> {
 
             // Only push if the accumulated expression is not empty or just whitespace
             if !current_expression_buffer.trim().is_empty() {
-                joined_expressions.push((current_expression_buffer.clone(), current_expression_start_line));
+                joined_expressions.push((
+                    current_expression_buffer.clone(),
+                    current_expression_start_line,
+                ));
             }
             current_expression_buffer.clear();
             current_expression_start_line = 0; // Reset
@@ -362,7 +365,10 @@ pub fn evaluate_lines(input: &str) -> Vec<Result<(f64, String), EvalError>> {
     // Handle any remaining accumulated expression if the file ends with a backslash
     // and it's not just whitespace
     if !current_expression_buffer.is_empty() && !current_expression_buffer.trim().is_empty() {
-        joined_expressions.push((current_expression_buffer.clone(), current_expression_start_line));
+        joined_expressions.push((
+            current_expression_buffer.clone(),
+            current_expression_start_line,
+        ));
     }
 
     // Evaluate each joined line separately
@@ -393,21 +399,23 @@ pub fn evaluate_lines(input: &str) -> Vec<Result<(f64, String), EvalError>> {
         };
 
         match Parser::new(tokens).parse() {
-            Ok(ast) => {
-                match BytecodeCompiler::compile(&ast) {
-                    Ok(code) => {
-                        if !code.is_empty() {
-                            match executor.execute(&code) {
-                                Ok(v) => results.push(Ok((v, line_str.to_string()))),
-                                Err(e) => results.push(Err(EvalError::Exec(e, line_str.to_string()))),
-                            }
+            Ok(ast) => match BytecodeCompiler::compile(&ast) {
+                Ok(code) => {
+                    if !code.is_empty() {
+                        match executor.execute(&code) {
+                            Ok(v) => results.push(Ok((v, line_str.to_string()))),
+                            Err(e) => results.push(Err(EvalError::Exec(e, line_str.to_string()))),
                         }
                     }
-                    Err(e) => results.push(Err(EvalError::Compile(e, line_str.to_string()))),
                 }
-            }
+                Err(e) => results.push(Err(EvalError::Compile(e, line_str.to_string()))),
+            },
             Err(e) => {
-                results.push(Err(EvalError::Parse(e, line_str.to_string(), original_line_offset))); // Pass the specific line string and offset
+                results.push(Err(EvalError::Parse(
+                    e,
+                    line_str.to_string(),
+                    original_line_offset,
+                ))); // Pass the specific line string and offset
             }
         }
     }

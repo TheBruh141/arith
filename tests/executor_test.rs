@@ -1,6 +1,6 @@
-use arith::executor::{evaluate_lines, CompileError, ExecError};
-use arith::executor::EvalError;
 use arith::errors::ParserError;
+use arith::executor::EvalError;
+use arith::executor::{CompileError, ExecError, evaluate_lines};
 
 fn assert_eval_ok(input: &str, expected: f64) {
     let results = evaluate_lines(input);
@@ -18,7 +18,13 @@ fn assert_eval_err(input: &str, expected_err_type: &str) {
         Ok((val, _expr_str)) => panic!("Expected error for input '{}', but got: {}", input, val),
         Err(e) => {
             let error_string = format!("{:?}", e);
-            assert!(error_string.contains(expected_err_type), "Input: '{}', Expected error type containing '{}', but got: '{}'", input, expected_err_type, error_string);
+            assert!(
+                error_string.contains(expected_err_type),
+                "Input: '{}', Expected error type containing '{}', but got: '{}'",
+                input,
+                expected_err_type,
+                error_string
+            );
         }
     }
 }
@@ -77,9 +83,11 @@ fn test_empty_and_comment_lines() {
     let results = evaluate_lines("; this is a comment");
     assert!(results.is_empty());
 
-    let results = evaluate_lines(r#"1 + 1
+    let results = evaluate_lines(
+        r#"1 + 1
 ; comment
-2 * 2"#);
+2 * 2"#,
+    );
     assert_eq!(results.len(), 2);
     assert_eq!(results[0].as_ref().unwrap().0, 2.0);
     assert_eq!(results[1].as_ref().unwrap().0, 4.0);
@@ -87,10 +95,16 @@ fn test_empty_and_comment_lines() {
 
 #[test]
 fn test_line_continuation() {
-    assert_eval_ok(r#"1 + \
-2"#, 3.0);
-    assert_eval_ok(r#" (1 + \
-2) * 3"#, 9.0);
+    assert_eval_ok(
+        r#"1 + \
+2"#,
+        3.0,
+    );
+    assert_eval_ok(
+        r#" (1 + \
+2) * 3"#,
+        9.0,
+    );
 }
 
 #[test]
@@ -103,8 +117,14 @@ fn test_division_by_zero() {
 fn test_invalid_syntax() {
     assert_eval_err("1 + * 2", r#"Parse(UnexpectedToken"#);
     assert_eval_err(" (1 + 2 ", r#"Parse(UnexpectedToken"#);
-    assert_eval_err("abc", r#"Parse(TokenizerError { message: "Unexpected character 'a'""#);
-    assert_eval_err("1.2.3", r#"Parse(TokenizerError { message: "Unexpected character '.'""#);
+    assert_eval_err(
+        "abc",
+        r#"Parse(TokenizerError { message: "Unexpected character 'a'""#,
+    );
+    assert_eval_err(
+        "1.2.3",
+        r#"Parse(TokenizerError { message: "Unexpected character '.'""#,
+    );
 }
 
 #[test]
@@ -298,7 +318,10 @@ fn test_unsupported_operator() {
     // Since we can't easily add a new token type, we will simulate this by creating a parser error.
     let results = evaluate_lines("1 % 2");
     assert_eq!(results.len(), 1);
-    assert!(matches!(results[0], Err(EvalError::Parse(ParserError::TokenizerError { .. }, _, _))));
+    assert!(matches!(
+        results[0],
+        Err(EvalError::Parse(ParserError::TokenizerError { .. }, _, _))
+    ));
 }
 
 #[test]
@@ -307,7 +330,10 @@ fn test_stack_underflow() {
     // StackUnderflow is generally unreachable with a correct parser and compiler.
     let results = evaluate_lines("+");
     assert_eq!(results.len(), 1);
-    assert!(matches!(results[0], Err(EvalError::Parse(ParserError::UnexpectedToken { .. }, _, _))));
+    assert!(matches!(
+        results[0],
+        Err(EvalError::Parse(ParserError::UnexpectedToken { .. }, _, _))
+    ));
 }
 
 #[test]
@@ -341,8 +367,12 @@ fn test_eval_error_display_parse() {
     if let Err(EvalError::Parse(_e, _, _)) = &results[0] {
         let expected_output = r#"Error: Tokenizer error: Unexpected character '@' at line 1, col 1
 1 | @
-  | ^"#.to_string();
-        assert_eq!(format!("{}", results[0].as_ref().unwrap_err()), expected_output);
+  | ^"#
+            .to_string();
+        assert_eq!(
+            format!("{}", results[0].as_ref().unwrap_err()),
+            expected_output
+        );
     } else {
         panic!("Expected a Parse error");
     }
@@ -350,20 +380,34 @@ fn test_eval_error_display_parse() {
 
 #[test]
 fn test_eval_error_display_compile() {
-    let err = EvalError::Compile(CompileError::UnsupportedOperator("test_op".to_string()), "test_input".to_string());
-    assert_eq!(format!("{}", err), r#"compile error: unsupported operator during compilation: test_op in input: test_input"#);
+    let err = EvalError::Compile(
+        CompileError::UnsupportedOperator("test_op".to_string()),
+        "test_input".to_string(),
+    );
+    assert_eq!(
+        format!("{}", err),
+        r#"compile error: unsupported operator during compilation: test_op in input: test_input"#
+    );
 }
 
 #[test]
 fn test_eval_error_display_exec() {
     let err = EvalError::Exec(ExecError::DivisionByZero, "1 / 0".to_string());
-    assert_eq!(format!("{}", err), r#"runtime error: division by zero in input: 1 / 0"#);
+    assert_eq!(
+        format!("{}", err),
+        r#"runtime error: division by zero in input: 1 / 0"#
+    );
 }
 
 #[test]
 fn test_exec_error_display_stack_underflow() {
-    let err = ExecError::StackUnderflow { instr: "Add".to_string() };
-    assert_eq!(format!("{}", err), r#"stack underflow while executing instruction 'Add'"#);
+    let err = ExecError::StackUnderflow {
+        instr: "Add".to_string(),
+    };
+    assert_eq!(
+        format!("{}", err),
+        r#"stack underflow while executing instruction 'Add'"#
+    );
 }
 
 #[test]
@@ -375,7 +419,10 @@ fn test_exec_error_display_division_by_zero() {
 #[test]
 fn test_exec_error_display_no_result() {
     let err = ExecError::NoResult;
-    assert_eq!(format!("{}", err), r#"execution finished with no result on the stack"#);
+    assert_eq!(
+        format!("{}", err),
+        r#"execution finished with no result on the stack"#
+    );
 }
 
 #[test]
@@ -387,7 +434,10 @@ fn test_exec_error_display_other() {
 #[test]
 fn test_compile_error_display_unsupported_operator() {
     let err = CompileError::UnsupportedOperator("test_op".to_string());
-    assert_eq!(format!("{}", err), r#"unsupported operator during compilation: test_op"#);
+    assert_eq!(
+        format!("{}", err),
+        r#"unsupported operator during compilation: test_op"#
+    );
 }
 
 #[test]

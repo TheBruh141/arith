@@ -145,10 +145,9 @@ impl Parser {
             self.current().get_type(),
             TokenType::Mul | TokenType::Div | TokenType::ParanOpen | TokenType::Number { .. }
         ) {
-            if matches!(self.current().get_type(), TokenType::ParanOpen) || matches!(
-                self.current().get_type(),
-                TokenType::Number { .. }
-            ) {
+            if matches!(self.current().get_type(), TokenType::ParanOpen)
+                || matches!(self.current().get_type(), TokenType::Number { .. })
+            {
                 // Implicit multiplication has the same precedence as explicit multiplication.
                 // e.g., `3(5)` is parsed as `3 * 5`.
                 let right = self.parse_factor()?;
