@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg
+   width="400mm"
+   height="100mm"
+   viewBox="0 0 400 100"
+   version="1.1"
+   id="svg1"
+   inkscape:version="1.4.2 (ebf0e940d0, 2025-05-08)"
+   sodipodi:docname="arith logo-darkmode.svg"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <sodipodi:namedview
+     id="namedview1"
+     pagecolor="#ffffff"
+     bordercolor="#000000"
+     borderopacity="0.25"
+     inkscape:showpageshadow="2"
+     inkscape:pageopacity="0.0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1"
+     inkscape:document-units="mm"
+     inkscape:zoom="0.57452381"
+     inkscape:cx="865.93452"
+     inkscape:cy="181.01948"
+     inkscape:window-width="1916"
+     inkscape:window-height="1036"
+     inkscape:window-x="0"
+     inkscape:window-y="0"
+     inkscape:window-maximized="1"
+     inkscape:current-layer="layer1" />
+  <defs
+     id="defs1">
+    <rect
+       x="25.57299"
+       y="89.50547"
+       width="212.65961"
+       height="84.458168"
+       id="rect1" />
+  </defs>
+  <g
+     inkscape:label="Layer 1"
+     inkscape:groupmode="layer"
+     id="layer1">
+    <text
+       xml:space="preserve"
+       transform="matrix(1.041132,0,0,1.041132,-17.187462,-80.371113)"
+       id="text1"
+       style="font-style:normal;font-variant:normal;font-weight:500;font-stretch:normal;font-size:53.3333px;font-family:'GeistMono Nerd Font Propo';-inkscape-font-specification:'GeistMono Nerd Font Propo Medium';text-align:start;writing-mode:lr-tb;direction:ltr;white-space:pre;shape-inside:url(#rect1);display:inline;fill:#cdd6f4"><tspan
+         x="25.572266"
+         y="137.40327"
+         id="tspan2">Arith</tspan></text>
+    <rect
+       style="fill:#cdd6f4;stroke-width:0.655658"
+       id="rect2"
+       width="47.96788"
+       height="5.3607259"
+       x="1.1441959"
+       y="46.920269"
+       ry="0" />
+    <rect
+       style="fill:#cdd6f4;stroke-width:1.41693"
+       id="rect2-8"
+       width="224.02194"
+       height="5.3607259"
+       x="175.8154"
+       y="46.598621"
+       ry="0" />
+    <rect
+       style="fill:#cdd6f4;stroke-width:1.89186"
+       id="rect2-7"
+       width="399.36957"
+       height="5.3607259"
+       x="0.46776614"
+       y="63.525982"
+       ry="0" />
+  </g>
+</svg>
