@@ -1,0 +1,5 @@
+; N -> Natural Number
+; Z -> Whole Number
+
+let x : N = 0
+x + 1

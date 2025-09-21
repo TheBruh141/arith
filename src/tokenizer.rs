@@ -31,6 +31,16 @@ pub enum TokenType {
     Number { value: String },
     /// Represents the end of the input string.
     EOF,
+
+    // Variable-related tokens
+    /// The `let` keyword.
+    Let,
+    /// An identifier, such as a variable name.
+    Identifier { name: String },
+    /// The assignment operator `=`.
+    Assign,
+    /// The colon operator `:` used for type annotations.
+    Colon,
 }
 
 /// Represents a token, a single lexical unit of the `arith` language.
@@ -109,6 +119,28 @@ impl Token {
             start + value.len(),
         )
     }
+    pub fn let_token(line_no: usize, start: usize, end: usize) -> Token {
+        Token::new(TokenType::Let, line_no, start, end)
+    }
+
+    pub fn identifier(name: &str, line_no: usize, start: usize, end: usize) -> Token {
+        Token::new(
+            TokenType::Identifier {
+                name: name.to_string(),
+            },
+            line_no,
+            start,
+            end,
+        )
+    }
+
+    pub fn colon(line_no: usize, pos: usize) -> Token {
+        Token::new(TokenType::Colon, line_no, pos, pos)
+    }
+
+    pub fn assign(line_no: usize, pos: usize) -> Token {
+        Token::new(TokenType::Assign, line_no, pos, pos)
+    }
     pub fn eof(line_no: usize, pos: usize) -> Token {
         Token::new(TokenType::EOF, line_no, pos, pos)
     }
@@ -117,16 +149,20 @@ impl Token {
 impl Display for TokenType {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            TokenType::Newline => write!(f, "Newline"),
-            TokenType::Plus => write!(f, "Plus"),
-            TokenType::Minus => write!(f, "Minus"),
-            TokenType::Div => write!(f, "Div"),
-            TokenType::Mul => write!(f, "Mul"),
-            TokenType::ParanOpen => write!(f, "ParanOpen"),
-            TokenType::ParanClose => write!(f, "ParanClose"),
-            TokenType::Comment { contents } => write!(f, "Comment: {}", contents),
-            TokenType::Number { value } => write!(f, "Number({})", value),
-            TokenType::EOF => write!(f, "eof"),
+            TokenType::Newline => write!(f, "Newline\n"),
+            TokenType::Plus => write!(f, "Plus\n"),
+            TokenType::Minus => write!(f, "Minus\n"),
+            TokenType::Div => write!(f, "Div\n"),
+            TokenType::Mul => write!(f, "Mul\n"),
+            TokenType::ParanOpen => write!(f, "ParanOpen\n"),
+            TokenType::ParanClose => write!(f, "ParanClose\n"),
+            TokenType::Comment { contents } => write!(f, "Comment: {}\n", contents),
+            TokenType::Number { value } => write!(f, "Number({})\n", value),
+            TokenType::EOF => write!(f, "eof\n"),
+            TokenType::Let => write!(f, "Let\n"),
+            TokenType::Identifier { name } => write!(f, "Identifier({})\n", name),
+            TokenType::Assign => write!(f, "Assign\n"),
+            TokenType::Colon => write!(f, "Colon\n"),
         }
     }
 }
@@ -198,13 +234,13 @@ impl Tokenizer {
                     i += 1;
                     col += 1;
                 }
-                '/' => {
-                    tokens.push(Token::div(line_no + 1, col + 1));
+                '*' => {
+                    tokens.push(Token::mul(line_no + 1, col + 1));
                     i += 1;
                     col += 1;
                 }
-                '*' => {
-                    tokens.push(Token::mul(line_no + 1, col + 1));
+                '/' => {
+                    tokens.push(Token::div(line_no + 1, col + 1));
                     i += 1;
                     col += 1;
                 }
@@ -218,21 +254,27 @@ impl Tokenizer {
                     i += 1;
                     col += 1;
                 }
+                '=' => {
+                    tokens.push(Token::assign(line_no + 1, col + 1));
+                    i += 1;
+                    col += 1;
+                }
+                ':' => {
+                    tokens.push(Token::colon(line_no + 1, col + 1));
+                    i += 1;
+                    col += 1;
+                }
                 ';' => {
-                    // Comments run to the end of the line.
                     let start_col = col;
-                    i += 1; // consume ';'
-
+                    i += 1;
                     let mut comment = String::new();
                     while i < len && chars[i] != '\n' {
                         comment.push(chars[i]);
                         i += 1;
                     }
-
                     col = start_col + 1 + comment.len();
                     tokens.push(Token::comment(&comment, line_no + 1, start_col + 1));
                 }
-
                 '\n' => {
                     tokens.push(Token {
                         token_type: TokenType::Newline,
@@ -245,8 +287,6 @@ impl Tokenizer {
                     line_no += 1;
                 }
                 c if c.is_ascii_digit() => {
-                    // Parse a number, which can be an integer, a float, or in
-                    // scientific notation.
                     let start_col = col;
                     let mut number = String::new();
                     let mut has_dot = false;
@@ -260,18 +300,15 @@ impl Tokenizer {
                         col += 1;
                     }
 
-                    // Handle scientific notation (e.g., 1e-5, 2.5E+3).
                     if i < len && (chars[i] == 'e' || chars[i] == 'E') {
                         number.push(chars[i]);
                         i += 1;
                         col += 1;
-
                         if i < len && (chars[i] == '+' || chars[i] == '-') {
                             number.push(chars[i]);
                             i += 1;
                             col += 1;
                         }
-
                         while i < len && chars[i].is_ascii_digit() {
                             number.push(chars[i]);
                             i += 1;
@@ -282,20 +319,38 @@ impl Tokenizer {
                     tokens.push(Token::number(&number, line_no + 1, start_col + 1));
                 }
                 c if c.is_whitespace() => {
-                    // Ignore whitespace characters (other than newlines).
                     i += 1;
                     col += 1;
                 }
+
+                c if c.is_alphabetic() || c == '_' => {
+                    let start_col = col;
+                    let mut ident = String::new();
+
+                    while i < len && (chars[i].is_alphanumeric() || chars[i] == '_') {
+                        ident.push(chars[i]);
+                        i += 1;
+                        col += 1;
+                    }
+
+                    match ident.as_str() {
+                        "let" => tokens.push(Token::let_token(line_no + 1, start_col + 1, col)),
+                        _ => {
+                            tokens.push(Token::identifier(&ident, line_no + 1, start_col + 1, col))
+                        }
+                    }
+                }
+
                 _ => {
-                    log::debug!("DEBUG: Tokenizer line_no = {}, col = {}", line_no, col);
                     return Err(TokenizerError::UnexpectedCharacter {
-                        found: chars[i],
+                        found: c,
                         line: line_no + 1,
                         col: col + 1,
                     });
                 }
             }
         }
+
         tokens.push(Token::eof(line_no + 1, col + 1));
         self.tokens = tokens.clone();
         Ok(tokens)
@@ -457,6 +512,94 @@ mod tests {
     fn test_whitespace_only_input() {
         assert_tokenize_ok("   ", vec![Token::eof(1, 4)]);
     }
-}
 
-// TODO: merge with git, fix 1 index. brand
+    #[test]
+    fn test_variable_declaration_untyped() {
+        assert_tokenize_ok(
+            "let x = 42",
+            vec![
+                Token::let_token(1, 1, 3),
+                Token::identifier("x", 1, 5, 5),
+                Token::assign(1, 7),
+                Token::number("42", 1, 9),
+                Token::eof(1, 11),
+            ],
+        );
+    }
+
+    #[test]
+    fn test_variable_declaration_typed() {
+        assert_tokenize_ok(
+            "let y: Int = 3.14",
+            vec![
+                Token::let_token(1, 1, 3),
+                Token::identifier("y", 1, 5, 5),
+                Token::colon(1, 6),
+                Token::identifier("Int", 1, 8, 10),
+                Token::assign(1, 12),
+                Token::number("3.14", 1, 14),
+                Token::eof(1, 18),
+            ],
+        );
+    }
+
+    #[test]
+    fn test_variable_reference() {
+        assert_tokenize_ok("x", vec![Token::identifier("x", 1, 1, 1), Token::eof(1, 2)]);
+    }
+
+    #[test]
+    fn test_variable_reassignment() {
+        assert_tokenize_ok(
+            "x = 99",
+            vec![
+                Token::identifier("x", 1, 1, 1),
+                Token::assign(1, 3),
+                Token::number("99", 1, 5),
+                Token::eof(1, 7),
+            ],
+        );
+    }
+
+    #[test]
+    fn test_multiple_variables() {
+        assert_tokenize_ok(
+            "let a = 1\nlet b: Float = 2.5\na = 3\nb",
+            vec![
+                Token::let_token(1, 1, 3),
+                Token::identifier("a", 1, 5, 5),
+                Token::assign(1, 7),
+                Token::number("1", 1, 9),
+                Token {
+                    token_type: TokenType::Newline,
+                    line_no: 1,
+                    start: 10,
+                    end: 10,
+                },
+                Token::let_token(2, 1, 3),
+                Token::identifier("b", 2, 5, 5),
+                Token::colon(2, 6),
+                Token::identifier("Float", 2, 8, 12),
+                Token::assign(2, 14),
+                Token::number("2.5", 2, 16),
+                Token {
+                    token_type: TokenType::Newline,
+                    line_no: 2,
+                    start: 19,
+                    end: 19,
+                },
+                Token::identifier("a", 3, 1, 1),
+                Token::assign(3, 3),
+                Token::number("3", 3, 5),
+                Token {
+                    token_type: TokenType::Newline,
+                    line_no: 3,
+                    start: 6,
+                    end: 6,
+                },
+                Token::identifier("b", 4, 1, 1),
+                Token::eof(4, 2),
+            ],
+        );
+    }
+}

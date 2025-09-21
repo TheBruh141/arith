@@ -1,38 +1,46 @@
-//! This module defines the Abstract Syntax Tree (AST) nodes for the `arith` language.
+//! This module defines the Abstract Syntax Tree (AST) for the `arith` language.
 //!
-//! While this file contains the `ASTNode` enum, the primary AST representation
-//! currently used throughout the project (in `parser.rs` and `executor.rs`)
-//! is the `Expr` enum defined in `src/parser.rs`.
-//!
-//! This `ASTNode` enum might be a placeholder for future extensions or
-//! an alternative AST structure.
+//! The `Statement` and `Expr` enums represent the grammatical structure of the code.
 
-pub enum ASTNode {
-    /// Represents a numeric literal in the AST.
+use crate::tokenizer::TokenType;
+
+/// Represents a statement in the `arith` language.
+#[derive(Debug, PartialEq)]
+pub enum Statement {
+    /// An expression statement, e.g., `1 + 2`.
+    Expression(Expr),
+    /// A `let` statement, e.g., `let x: Int = 10`.
+    Let {
+        name: String,
+        type_name: Option<String>,
+        value: Expr,
+    },
+    /// An assignment statement, e.g., `x = 10`.
+    Assignment { name: String, value: Expr },
+}
+
+/// Represents an expression in the `arith` language.
+#[derive(Debug, PartialEq)]
+pub enum Expr {
+    /// A literal floating-point number, e.g., `42.0`, `3.14`.
     Number(f64),
-    /// Represents a variable. (Currently unused in the main interpreter flow).
+
+    /// An identifier, representing a variable reference, e.g., `x`.
     Variable(String),
-    /// Represents an addition operation. (Currently unused in the main interpreter flow).
-    Addition {
-        left: Box<ASTNode>,
-        right: Box<ASTNode>,
+
+    /// A unary operation, e.g., `-5`, `+x`.
+    UnaryOp { op: TokenType, expr: Box<Expr> },
+
+    /// A binary operation, e.g., `a + b`, `c * d`.
+    BinaryOp {
+        left: Box<Expr>,
+        op: TokenType,
+        right: Box<Expr>,
     },
-    /// Represents a subtraction operation. (Currently unused in the main interpreter flow).
-    Subtraction {
-        left: Box<ASTNode>,
-        right: Box<ASTNode>,
-    },
-    /// Represents a multiplication operation. (Currently unused in the main interpreter flow).
-    Multiplication {
-        left: Box<ASTNode>,
-        right: Box<ASTNode>,
-    },
-    /// Represents a division operation. (Currently unused in the main interpreter flow).
-    Division {
-        left: Box<ASTNode>,
-        right: Box<ASTNode>,
-    },
-    /// Represents a unary minus operation. (Currently unused in the main interpreter flow).
-    UnaryMinus(Box<ASTNode>),
-    // FunctionCall { name: String, args: Vec<Node> }, // Example of a potential future extension
+
+    /// Represents an empty expression, typically from an empty input string.
+    Empty,
+
+    /// Represents empty parentheses, e.g., `()`. In `arith`, this evaluates to `0`.
+    EmptyParen,
 }

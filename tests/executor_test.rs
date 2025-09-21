@@ -1,9 +1,9 @@
 use arith::errors::ParserError;
-use arith::executor::EvalError;
-use arith::executor::{CompileError, ExecError, evaluate_lines};
+use arith::executor::{CompileError, EvalError, ExecError, SimpleExecutor, evaluate_lines};
 
 fn assert_eval_ok(input: &str, expected: f64) {
-    let results = evaluate_lines(input);
+    let mut executor = SimpleExecutor::new();
+    let results = evaluate_lines(input, &mut executor);
     assert_eq!(results.len(), 1, "Expected one result for input: {}", input);
     match &results[0] {
         Ok((val, _expr_str)) => assert_eq!(*val, expected, "Input: {}", input),
@@ -12,7 +12,8 @@ fn assert_eval_ok(input: &str, expected: f64) {
 }
 
 fn assert_eval_err(input: &str, expected_err_type: &str) {
-    let results = evaluate_lines(input);
+    let mut executor = SimpleExecutor::new();
+    let results = evaluate_lines(input, &mut executor);
     assert_eq!(results.len(), 1, "Expected one result for input: {}", input);
     match &results[0] {
         Ok((val, _expr_str)) => panic!("Expected error for input '{}', but got: {}", input, val),
@@ -68,25 +69,27 @@ fn test_unary_operators() {
 fn test_implicit_multiplication() {
     assert_eval_ok("3(5)", 15.0);
     assert_eval_ok("(2+1)(4)", 12.0);
-    assert_eval_ok("(3)2", 6.0); // Test for (expr)number
+    assert_eval_ok("(3)2", 6.0);
     assert_eval_ok("2(1+1)", 4.0);
 }
 
 #[test]
 fn test_empty_and_comment_lines() {
-    let results = evaluate_lines("");
+    let mut executor = SimpleExecutor::new();
+    let results = evaluate_lines("", &mut executor);
     assert!(results.is_empty());
 
-    let results = evaluate_lines("   ");
+    let results = evaluate_lines("   ", &mut executor);
     assert!(results.is_empty());
 
-    let results = evaluate_lines("; this is a comment");
+    let results = evaluate_lines("; this is a comment", &mut executor);
     assert!(results.is_empty());
 
     let results = evaluate_lines(
         r#"1 + 1
 ; comment
 2 * 2"#,
+        &mut executor,
     );
     assert_eq!(results.len(), 2);
     assert_eq!(results[0].as_ref().unwrap().0, 2.0);
@@ -117,14 +120,8 @@ fn test_division_by_zero() {
 fn test_invalid_syntax() {
     assert_eval_err("1 + * 2", r#"Parse(UnexpectedToken"#);
     assert_eval_err(" (1 + 2 ", r#"Parse(UnexpectedToken"#);
-    assert_eval_err(
-        "abc",
-        r#"Parse(TokenizerError { message: "Unexpected character 'a'""#,
-    );
-    assert_eval_err(
-        "1.2.3",
-        r#"Parse(TokenizerError { message: "Unexpected character '.'""#,
-    );
+    assert_eval_err("abc", "undefined variable: abc");
+    assert_eval_err("1.2.3", "Unexpected character '.'");
 }
 
 #[test]
@@ -138,11 +135,23 @@ fn test_multiple_expressions_on_separate_lines() {
     let input = r#"1 + 1
 2 * 3
 10 / 2"#;
-    let results = evaluate_lines(input);
+    let mut executor = SimpleExecutor::new();
+    let results = evaluate_lines(input, &mut executor);
     assert_eq!(results.len(), 3);
     assert_eq!(results[0].as_ref().unwrap().0, 2.0);
     assert_eq!(results[1].as_ref().unwrap().0, 6.0);
     assert_eq!(results[2].as_ref().unwrap().0, 5.0);
+}
+
+#[test]
+fn test_variable_reassignment() {
+    let input = r#"let a = 1
+a = 2
+a"#;
+    let mut executor = SimpleExecutor::new();
+    let results = evaluate_lines(input, &mut executor);
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].as_ref().unwrap().0, 2.0);
 }
 
 #[test]
@@ -187,7 +196,8 @@ fn test_multiple_lines_with_comments_and_empty() {
 
    ; second comment
 3 + 3"#;
-    let results = evaluate_lines(input);
+    let mut executor = SimpleExecutor::new();
+    let results = evaluate_lines(input, &mut executor);
     assert_eq!(results.len(), 3);
     assert_eq!(results[0].as_ref().unwrap().0, 2.0);
     assert_eq!(results[1].as_ref().unwrap().0, 4.0);
@@ -238,20 +248,23 @@ fn test_chained_operations() {
 
 #[test]
 fn test_empty_input_multiple_lines() {
-    let results = evaluate_lines("\n\n");
+    let mut executor = SimpleExecutor::new();
+    let results = evaluate_lines("\n\n", &mut executor);
     assert!(results.is_empty());
 }
 
 #[test]
 fn test_input_with_only_whitespace() {
-    let results = evaluate_lines("   	  \n  ");
+    let mut executor = SimpleExecutor::new();
+    let results = evaluate_lines("   	  \n  ", &mut executor);
     assert!(results.is_empty());
 }
 
 #[test]
 fn test_comment_only_lines_mixed_with_empty() {
     let input = r#"; comment 1\n\n; comment 2"#;
-    let results = evaluate_lines(input);
+    let mut executor = SimpleExecutor::new();
+    let results = evaluate_lines(input, &mut executor);
     assert!(results.is_empty());
 }
 
@@ -301,14 +314,16 @@ fn test_implicit_multiplication_with_empty_paren() {
 
 #[test]
 fn test_invalid_input() {
-    let results = evaluate_lines("@");
+    let mut executor = SimpleExecutor::new();
+    let results = evaluate_lines("@", &mut executor);
     assert_eq!(results.len(), 1);
     assert!(matches!(results[0], Err(EvalError::Parse(..))));
 }
 
 #[test]
 fn test_comment_only_line() {
-    let results = evaluate_lines("; this is a comment");
+    let mut executor = SimpleExecutor::new();
+    let results = evaluate_lines("; this is a comment", &mut executor);
     assert!(results.is_empty());
 }
 
@@ -316,7 +331,8 @@ fn test_comment_only_line() {
 fn test_unsupported_operator() {
     // This test requires a custom token type that is not supported by the compiler.
     // Since we can't easily add a new token type, we will simulate this by creating a parser error.
-    let results = evaluate_lines("1 % 2");
+    let mut executor = SimpleExecutor::new();
+    let results = evaluate_lines("1 % 2", &mut executor);
     assert_eq!(results.len(), 1);
     assert!(matches!(
         results[0],
@@ -328,7 +344,8 @@ fn test_unsupported_operator() {
 fn test_stack_underflow() {
     // Input `+` causes a ParserError, not a StackUnderflow.
     // StackUnderflow is generally unreachable with a correct parser and compiler.
-    let results = evaluate_lines("+");
+    let mut executor = SimpleExecutor::new();
+    let results = evaluate_lines("+", &mut executor);
     assert_eq!(results.len(), 1);
     assert!(matches!(
         results[0],
@@ -338,7 +355,8 @@ fn test_stack_underflow() {
 
 #[test]
 fn test_tokenizer_error() {
-    let results = evaluate_lines("$");
+    let mut executor = SimpleExecutor::new();
+    let results = evaluate_lines("$", &mut executor);
     assert_eq!(results.len(), 1);
     assert!(results[0].is_err());
 }
@@ -347,23 +365,26 @@ fn test_tokenizer_error() {
 fn test_compile_error() {
     // To trigger a compile error, we need an AST node that the compiler doesn't support.
     // We can't easily create such a node, so we will simulate this by creating a parser error.
-    let results = evaluate_lines("1+*2");
+    let mut executor = SimpleExecutor::new();
+    let results = evaluate_lines("1+*2", &mut executor);
     assert_eq!(results.len(), 1);
     assert!(results[0].is_err());
 }
 
 #[test]
 fn test_empty_expression_old() {
-    let results = evaluate_lines("1()");
+    let mut executor = SimpleExecutor::new();
+    let results = evaluate_lines("1()", &mut executor);
     assert_eq!(results.len(), 1);
     print!("{:?}", results);
-    assert!(results[0].is_ok()); // Should be Ok(0.0) or similar for empty expression
+    assert!(results[0].is_ok());
 }
 
 #[test]
 fn test_eval_error_display_parse() {
     let input = "@";
-    let results = evaluate_lines(input);
+    let mut executor = SimpleExecutor::new();
+    let results = evaluate_lines(input, &mut executor);
     if let Err(EvalError::Parse(_e, _, _)) = &results[0] {
         let expected_output = r#"Error: Tokenizer error: Unexpected character '@' at line 1, col 1
 1 | @
@@ -442,14 +463,16 @@ fn test_compile_error_display_unsupported_operator() {
 
 #[test]
 fn test_evaluate_lines_exec_error() {
-    let results = evaluate_lines("1 / 0");
+    let mut executor = SimpleExecutor::new();
+    let results = evaluate_lines("1 / 0", &mut executor);
     assert_eq!(results.len(), 1);
     assert!(results[0].is_err());
 }
 
 #[test]
 fn test_evaluate_lines_parser_error() {
-    let results = evaluate_lines("1 + *");
+    let mut executor = SimpleExecutor::new();
+    let results = evaluate_lines("1 + *", &mut executor);
     assert_eq!(results.len(), 1);
     assert!(results[0].is_err());
 }
