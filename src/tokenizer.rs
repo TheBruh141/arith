@@ -41,6 +41,14 @@ pub enum TokenType {
     Assign,
     /// The colon operator `:` used for type annotations.
     Colon,
+    /// The `+=` operator.
+    PlusAssign,
+    /// The `-=` operator.
+    MinusAssign,
+    /// The `*=` operator.
+    MulAssign,
+    /// The `/=` operator.
+    DivAssign,
 }
 
 /// Represents a token, a single lexical unit of the `arith` language.
@@ -141,6 +149,18 @@ impl Token {
     pub fn assign(line_no: usize, pos: usize) -> Token {
         Token::new(TokenType::Assign, line_no, pos, pos)
     }
+    pub fn plus_assign(line_no: usize, pos: usize) -> Token {
+        Token::new(TokenType::PlusAssign, line_no, pos, pos)
+    }
+    pub fn minus_assign(line_no: usize, pos: usize) -> Token {
+        Token::new(TokenType::MinusAssign, line_no, pos, pos)
+    }
+    pub fn mul_assign(line_no: usize, pos: usize) -> Token {
+        Token::new(TokenType::MulAssign, line_no, pos, pos)
+    }
+    pub fn div_assign(line_no: usize, pos: usize) -> Token {
+        Token::new(TokenType::DivAssign, line_no, pos, pos)
+    }
     pub fn eof(line_no: usize, pos: usize) -> Token {
         Token::new(TokenType::EOF, line_no, pos, pos)
     }
@@ -163,6 +183,10 @@ impl Display for TokenType {
             TokenType::Identifier { name } => write!(f, "Identifier({})\n", name),
             TokenType::Assign => write!(f, "Assign\n"),
             TokenType::Colon => write!(f, "Colon\n"),
+            TokenType::PlusAssign => write!(f, "PlusAssign\n"),
+            TokenType::MinusAssign => write!(f, "MinusAssign\n"),
+            TokenType::MulAssign => write!(f, "MulAssign\n"),
+            TokenType::DivAssign => write!(f, "DivAssign\n"),
         }
     }
 }
@@ -225,24 +249,48 @@ impl Tokenizer {
 
             match c {
                 '+' => {
-                    tokens.push(Token::plus(line_no + 1, col + 1));
-                    i += 1;
-                    col += 1;
+                    if i + 1 < len && chars[i + 1] == '=' {
+                        tokens.push(Token::plus_assign(line_no + 1, col + 1));
+                        i += 2;
+                        col += 2;
+                    } else {
+                        tokens.push(Token::plus(line_no + 1, col + 1));
+                        i += 1;
+                        col += 1;
+                    }
                 }
                 '-' => {
-                    tokens.push(Token::minus(line_no + 1, col + 1));
-                    i += 1;
-                    col += 1;
+                    if i + 1 < len && chars[i + 1] == '=' {
+                        tokens.push(Token::minus_assign(line_no + 1, col + 1));
+                        i += 2;
+                        col += 2;
+                    } else {
+                        tokens.push(Token::minus(line_no + 1, col + 1));
+                        i += 1;
+                        col += 1;
+                    }
                 }
                 '*' => {
-                    tokens.push(Token::mul(line_no + 1, col + 1));
-                    i += 1;
-                    col += 1;
+                    if i + 1 < len && chars[i + 1] == '=' {
+                        tokens.push(Token::mul_assign(line_no + 1, col + 1));
+                        i += 2;
+                        col += 2;
+                    } else {
+                        tokens.push(Token::mul(line_no + 1, col + 1));
+                        i += 1;
+                        col += 1;
+                    }
                 }
                 '/' => {
-                    tokens.push(Token::div(line_no + 1, col + 1));
-                    i += 1;
-                    col += 1;
+                    if i + 1 < len && chars[i + 1] == '=' {
+                        tokens.push(Token::div_assign(line_no + 1, col + 1));
+                        i += 2;
+                        col += 2;
+                    } else {
+                        tokens.push(Token::div(line_no + 1, col + 1));
+                        i += 1;
+                        col += 1;
+                    }
                 }
                 '(' => {
                     tokens.push(Token::paran_open(line_no + 1, col + 1));

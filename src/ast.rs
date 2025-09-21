@@ -17,6 +17,12 @@ pub enum Statement {
     },
     /// An assignment statement, e.g., `x = 10`.
     Assignment { name: String, value: Expr },
+    /// A compound assignment statement, e.g., `x += 10`.
+    CompoundAssignment {
+        name: String,
+        op: TokenType,
+        value: Expr,
+    },
 }
 
 /// Represents an expression in the `arith` language.

@@ -365,6 +365,38 @@ pub fn evaluate_lines(
                         Err(e) => results.push(Err(EvalError::Compile(e, line_str.to_string()))),
                     }
                 }
+                Statement::CompoundAssignment { name, op, value } => {
+                    if !executor.symbols.contains_key(&name) {
+                        results.push(Err(EvalError::Exec(
+                            ExecError::Other(format!("undefined variable: {}", name)),
+                            line_str.to_string(),
+                        )));
+                        continue;
+                    }
+                    match BytecodeCompiler::compile(&value) {
+                        Ok(code) => {
+                            if !code.is_empty() {
+                                match executor.execute(&code) {
+                                    Ok(v) => {
+                                        let current_val = executor.symbols.get(&name).unwrap();
+                                        let new_val = match op {
+                                            TokenType::PlusAssign => *current_val + v,
+                                            TokenType::MinusAssign => *current_val - v,
+                                            TokenType::MulAssign => *current_val * v,
+                                            TokenType::DivAssign => *current_val / v,
+                                            _ => unreachable!(),
+                                        };
+                                        executor.symbols.insert(name, new_val);
+                                    }
+                                    Err(e) => {
+                                        results.push(Err(EvalError::Exec(e, line_str.to_string())))
+                                    }
+                                }
+                            }
+                        }
+                        Err(e) => results.push(Err(EvalError::Compile(e, line_str.to_string()))),
+                    }
+                }
             },
             Err(e) => {
                 results.push(Err(EvalError::Parse(

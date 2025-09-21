@@ -56,19 +56,42 @@ impl Parser {
     fn parse_statement(&mut self) -> Result<Statement, ParserError> {
         match self.current().get_type() {
             TokenType::Let => self.parse_let_statement(),
-            TokenType::Identifier { .. } => {
-                if let TokenType::Assign = self.peek().get_type() {
-                    self.parse_assignment_statement()
-                } else {
+            TokenType::Identifier { .. } => match self.peek().get_type() {
+                TokenType::Assign => self.parse_assignment_statement(),
+                TokenType::PlusAssign
+                | TokenType::MinusAssign
+                | TokenType::MulAssign
+                | TokenType::DivAssign => self.parse_compound_assignment_statement(),
+                _ => {
                     let expr = self.parse_expr(0)?;
                     Ok(Statement::Expression(expr))
                 }
-            }
+            },
             _ => {
                 let expr = self.parse_expr(0)?;
                 Ok(Statement::Expression(expr))
             }
         }
+    }
+
+    fn parse_compound_assignment_statement(&mut self) -> Result<Statement, ParserError> {
+        let name = if let TokenType::Identifier { name } = self.current().get_type() {
+            name.clone()
+        } else {
+            return Err(ParserError::UnexpectedToken {
+                found: self.current().get_type().clone(),
+                line: self.current().get_line_no(),
+                col: self.current().get_start(),
+            });
+        };
+        self.advance();
+
+        let op = self.current().get_type().clone();
+        self.advance();
+
+        let value = self.parse_expr(0)?;
+
+        Ok(Statement::CompoundAssignment { name, op, value })
     }
 
     fn parse_assignment_statement(&mut self) -> Result<Statement, ParserError> {

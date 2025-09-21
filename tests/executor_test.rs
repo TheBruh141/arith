@@ -155,6 +155,52 @@ a"#;
 }
 
 #[test]
+fn test_compound_assignment() {
+    let input = r#"let a = 1
+a += 2
+a -= 1
+a *= 3
+a /= 2
+a"#;
+    let mut executor = SimpleExecutor::new();
+    let results = evaluate_lines(input, &mut executor);
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].as_ref().unwrap().0, 3.0);
+}
+
+#[test]
+fn test_compound_assignment_strict() {
+    let mut executor = SimpleExecutor::new();
+
+    // Test += operator
+    evaluate_lines("let a = 1", &mut executor);
+    evaluate_lines("a += 2", &mut executor);
+    let results = evaluate_lines("a", &mut executor);
+    assert_eq!(results[0].as_ref().unwrap().0, 3.0);
+
+    // Test -= operator
+    evaluate_lines("a -= 1", &mut executor);
+    let results = evaluate_lines("a", &mut executor);
+    assert_eq!(results[0].as_ref().unwrap().0, 2.0);
+
+    // Test *= operator
+    evaluate_lines("a *= 3", &mut executor);
+    let results = evaluate_lines("a", &mut executor);
+    assert_eq!(results[0].as_ref().unwrap().0, 6.0);
+
+    // Test /= operator
+    evaluate_lines("a /= 2", &mut executor);
+    let results = evaluate_lines("a", &mut executor);
+    assert_eq!(results[0].as_ref().unwrap().0, 3.0);
+
+    // Test with undeclared variable
+    assert_eval_err("b += 2", "undefined variable: b");
+    assert_eval_err("c -= 2", "undefined variable: c");
+    assert_eval_err("d *= 2", "undefined variable: d");
+    assert_eval_err("e /= 2", "undefined variable: e");
+}
+
+#[test]
 fn test_complex_expressions() {
     assert_eval_ok("1 + 2 * (3 - 4) / -5", 1.4);
     assert_eval_ok("10 - 2 * 3 + 4 / 2", 6.0);
