@@ -1,10 +1,3 @@
-//! This module implements the Read-Eval-Print Loop (REPL) for the `arith` interpreter.
-//!
-//! The REPL provides an interactive command-line interface where users can
-//! enter arithmetic expressions, and the interpreter will evaluate them and
-//! print the results. It supports multi-line input, special commands, and
-//! basic error reporting.
-
 use crate::executor::{SimpleExecutor, evaluate_lines};
 use log::error;
 use std::fs::File;
@@ -13,24 +6,20 @@ use std::path::Path;
 use std::time::Instant;
 
 pub fn run_repl() -> io::Result<()> {
-    println!("arith REPL — enter expressions. Use \\ for line-continuation. :q to quit.");
+    println!("arith REPL. Use \\ for line-continuation. :q to quit, :help for help.");
 
-    let mut acc = String::new();
     let mut executor = SimpleExecutor::new();
+    let mut buffer = String::new();
 
     loop {
-        if acc.is_empty() {
-            print!(">> ");
-        } else {
-            print!("... ");
-        }
+        print_prompt(&buffer)?;
         io::stdout().flush()?;
 
         let mut line = String::new();
         let n = io::stdin().read_line(&mut line)?;
         if n == 0 {
-            if !acc.trim().is_empty() {
-                eval_and_print(&acc, &mut executor);
+            if !buffer.trim().is_empty() {
+                eval_and_print(&buffer, &mut executor);
             }
             println!();
             break;
@@ -38,90 +27,112 @@ pub fn run_repl() -> io::Result<()> {
 
         let trimmed = line.trim_end();
 
-        if acc.is_empty() {
-            match trimmed {
-                ":q" | ":quit" | ":exit" => break,
-                ":h" | ":help" => {
-                    println!("Commands: :q to quit, :help for this, :bench for performance test.");
-                    continue;
-                }
-                ":bench" => {
-                    let expression = "1 + 2 * (3 - 4) / -5 + (6 * 7) - 8 / 9 + 10 * (11 + 12) - (13 * 14) / 15 + 16 - 17 * 18 / (19 + 20) - 21 + 22 * 23 / 24 - 25 + 26 * (27 - 28) / 29 + 30";
-                    let num_iterations = 1000;
-
-                    let start_time = Instant::now();
-                    for _ in 0..num_iterations {
-                        evaluate_lines(expression, &mut executor);
-                    }
-                    let elapsed_time = start_time.elapsed();
-
-                    println!("Benchmarking {}:", expression);
-                    println!("  Iterations: {}", num_iterations);
-                    println!("  Total time: {:?}", elapsed_time);
-                    println!(
-                        "  Average time per evaluation: {:?}",
-                        elapsed_time / num_iterations
-                    );
-                    continue;
-                }
-                cmd if cmd.starts_with(":save")
-                    || cmd.starts_with(":w")
-                    || cmd.starts_with(":wq") =>
-                {
-                    let parts: Vec<&str> = cmd.splitn(2, ' ').collect();
-                    let filename = if parts.len() > 1 && !parts[1].is_empty() {
-                        parts[1].trim()
-                    } else {
-                        "history"
-                    };
-
-                    if let Err(e) = save_output(filename, &acc) {
-                        error!("Error saving output: {}", e);
-                    }
-                    acc.clear();
-                    if cmd.starts_with(":wq") {
-                        break;
-                    }
-                    continue;
-                }
-                _ => {}
-            }
+        // handle top-level commands
+        if buffer.is_empty() && handle_command(trimmed, &mut executor, &mut buffer)? {
+            continue;
         }
 
-        acc.push_str(trimmed);
-        acc.push('\n');
+        // accumulate multi-line input
+        buffer.push_str(trimmed);
+        buffer.push('\n');
 
-        let ends_with_backslash = trimmed.trim_end().ends_with('\\');
-
-        if !ends_with_backslash {
-            eval_and_print(&acc, &mut executor);
-            acc.clear();
+        if !trimmed.ends_with('\\') {
+            eval_and_print(&buffer, &mut executor);
+            buffer.clear();
         }
     }
 
     Ok(())
 }
 
-fn save_output(filename: &str, content: &str) -> io::Result<()> {
-    let mut file_path = filename.to_string();
+fn print_prompt(buffer: &str) -> io::Result<()> {
+    if buffer.is_empty() {
+        print!(">> ");
+    } else {
+        print!("... ");
+    }
+    Ok(())
+}
 
-    if file_path.ends_with(".arith.arith") {
-        file_path = file_path.strip_suffix(".arith").unwrap().to_string();
-    } else if !file_path.ends_with(".arith") {
-        file_path.push_str(".arith");
+/// Returns true if the line was a command and handled
+fn handle_command(
+    line: &str,
+    executor: &mut SimpleExecutor,
+    buffer: &mut String,
+) -> io::Result<bool> {
+    match line {
+        ":q" | ":quit" | ":exit" => std::process::exit(0),
+        ":h" | ":help" => {
+            println!(
+                "Commands: :q to quit, :help for help, :bench for performance test, :clear to clear buffer, :save <file>"
+            );
+            return Ok(true);
+        }
+        ":clear" => {
+            buffer.clear();
+            print!("\x1B[2J\x1B[1;1H");
+            print!(".\\ Arith Repl\n");
+
+            return Ok(true);
+        }
+        ":bench" => {
+            run_benchmark(executor);
+            return Ok(true);
+        }
+        cmd if cmd.starts_with(":save") || cmd.starts_with(":w") || cmd.starts_with(":wq") => {
+            let parts: Vec<&str> = cmd.splitn(2, ' ').collect();
+            let filename = if parts.len() > 1 && !parts[1].is_empty() {
+                parts[1].trim()
+            } else {
+                "history"
+            };
+
+            if let Err(e) = save_output(filename, buffer) {
+                error!("Error saving output: {}", e);
+            }
+            buffer.clear();
+            if cmd.starts_with(":wq") {
+                std::process::exit(0);
+            }
+            return Ok(true);
+        }
+        _ => {}
+    }
+    Ok(false)
+}
+
+fn run_benchmark(executor: &mut SimpleExecutor) {
+    let expression = "1 + 2 * (3 - 4) / -5 + (6 * 7) - 8 / 9 + 10 * (11 + 12) - (13 * 14) / 15 + 16 - 17 * 18 / (19 + 20) - 21 + 22 * 23 / 24 - 25 + 26 * (27 - 28) / 29 + 30";
+    let iterations = 1000;
+
+    let start = Instant::now();
+    for _ in 0..iterations {
+        evaluate_lines(expression, executor);
+    }
+    let elapsed = start.elapsed();
+
+    println!("Benchmarking {}:", expression);
+    println!("  Iterations: {}", iterations);
+    println!("  Total time: {:?}", elapsed);
+    println!("  Avg time: {:?}", elapsed / iterations);
+}
+
+fn save_output(filename: &str, content: &str) -> io::Result<()> {
+    let mut path = filename.to_string();
+    if path.ends_with(".arith.arith") {
+        path = path.strip_suffix(".arith").unwrap().to_string();
+    } else if !path.ends_with(".arith") {
+        path.push_str(".arith");
     }
 
-    let path = Path::new(&file_path);
     let mut file = File::create(&path)?;
     file.write_all(content.as_bytes())?;
-    println!("Output saved to {}", file_path);
+    println!("Output saved to {}", path);
     Ok(())
 }
 
 fn eval_and_print(input: &str, executor: &mut SimpleExecutor) {
-    let results = evaluate_lines(input, executor);
-
-    for res in results {
+    for res in evaluate_lines(input, executor) {
         match res {
             Ok((v, _)) => println!("= {}", fmt_num(v)),
             Err(e) => error!("! {}", e),
@@ -134,7 +145,6 @@ fn fmt_num(x: f64) -> String {
         format!("{}", x as i64)
     } else {
         let s = format!("{:.15}", x);
-        let s = s.trim_end_matches('0').trim_end_matches('.');
-        s.to_string()
+        s.trim_end_matches('0').trim_end_matches('.').to_string()
     }
 }
