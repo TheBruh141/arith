@@ -3,7 +3,6 @@ use std::collections::HashMap;
 use std::fmt;
 use std::rc::Rc;
 
-
 #[derive(Clone, Debug, PartialEq)]
 pub enum Value {
     Int(i64),
@@ -44,6 +43,13 @@ pub enum OpCode {
     Mul,
     Div,
 
+    // Eq
+    Eq,
+    Lt,
+    Gt,
+    Leq,
+    Geq,
+
     // Variables
     // In a production VM, strings would be resolved to integer indices at compile time.
     Load(String),
@@ -68,15 +74,12 @@ pub enum OpCode {
     Halt,
 }
 
-
-
-
 impl fmt::Display for OpCode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use OpCode::*;
-        const CYAN: &str   = "\x1b[36m";
+        const CYAN: &str = "\x1b[36m";
         const YELLOW: &str = "\x1b[33m";
-        const RESET: &str  = "\x1b[0m";
+        const RESET: &str = "\x1b[0m";
 
         // Longest opcode mnemonic length (without colors)
         const WIDTH: usize = 14;
@@ -87,44 +90,39 @@ impl fmt::Display for OpCode {
         }
 
         match self {
-            PushInt(n) =>
-                write!(f, "{} {}", op("PUSH_INT"),   format!("{YELLOW}{n}{RESET}")),
-            PushBool(b) =>
-                write!(f, "{} {}", op("PUSH_BOOL"),  format!("{YELLOW}{b}{RESET}")),
-            Pop =>
-                write!(f, "{}", op("POP")),
-            Add =>
-                write!(f, "{}", op("ADD")),
-            Sub =>
-                write!(f, "{}", op("SUB")),
-            Mul =>
-                write!(f, "{}", op("MUL")),
-            Div =>
-                write!(f, "{}", op("DIV")),
-            Load(s) =>
-                write!(f, "{} {}", op("LOAD"),        format!("{YELLOW}{s}{RESET}")),
-            Store(s) =>
-                write!(f, "{} {}", op("STORE"),       format!("{YELLOW}{s}{RESET}")),
-            PopBinding(s) =>
-                write!(f, "{} {}", op("POP_BINDING"), format!("{YELLOW}{s}{RESET}")),
-            Jump(n) =>
-                write!(f, "{} @{}", op("JUMP"),          format!("{YELLOW}{n}{RESET}")),
-            JumpIfFalse(n) =>
-                write!(f, "{} @{}", op("JUMP_IF_FALSE"), format!("{YELLOW}{n}{RESET}")),
-            MakeClosure { addr, param } =>
-                write!(
-                    f,
-                    "{} param:{} @{}",
-                    op("CLOSURE"),
-                    format!("{YELLOW}{param}{RESET}"),
-                    format!("{YELLOW}{addr}{RESET}"),
-                ),
-            Call =>
-                write!(f, "{}", op("CALL")),
-            Return =>
-                write!(f, "{}", op("RETURN")),
-            Halt =>
-                write!(f, "{}", op("HALT")),
+            PushInt(n) => write!(f, "{} {}", op("PUSH_INT"), format!("{YELLOW}{n}{RESET}")),
+            PushBool(b) => write!(f, "{} {}", op("PUSH_BOOL"), format!("{YELLOW}{b}{RESET}")),
+            Pop => write!(f, "{}", op("POP")),
+            Add => write!(f, "{}", op("ADD")),
+            Sub => write!(f, "{}", op("SUB")),
+            Mul => write!(f, "{}", op("MUL")),
+            Div => write!(f, "{}", op("DIV")),
+            Load(s) => write!(f, "{} {}", op("LOAD"), format!("{YELLOW}{s}{RESET}")),
+            Store(s) => write!(f, "{} {}", op("STORE"), format!("{YELLOW}{s}{RESET}")),
+            PopBinding(s) => write!(f, "{} {}", op("POP_BINDING"), format!("{YELLOW}{s}{RESET}")),
+            Jump(n) => write!(f, "{} @{}", op("JUMP"), format!("{YELLOW}{n}{RESET}")),
+            JumpIfFalse(n) => write!(
+                f,
+                "{} @{}",
+                op("JUMP_IF_FALSE"),
+                format!("{YELLOW}{n}{RESET}")
+            ),
+            MakeClosure { addr, param } => write!(
+                f,
+                "{} param:{} @{}",
+                op("CLOSURE"),
+                format!("{YELLOW}{param}{RESET}"),
+                format!("{YELLOW}{addr}{RESET}"),
+            ),
+            Call => write!(f, "{}", op("CALL")),
+            Return => write!(f, "{}", op("RETURN")),
+            Halt => write!(f, "{}", op("HALT")),
+
+            Eq => write!(f, "{}", op("Eq")),
+            Lt => write!(f, "{}", op("Lt")),
+            Gt => write!(f, "{}", op("Gt")),
+            Leq => write!(f, "{}", op("Leq")),
+            Geq => write!(f, "{}", op("Geq")),
         }
     }
 }
@@ -160,7 +158,6 @@ impl VM {
         }
     }
 
-
     pub fn run(&mut self) -> Result<Value, String> {
         // Add a HALT at the end if not present to ensure clean exit
         if !matches!(self.code.last(), Some(OpCode::Halt)) {
@@ -191,7 +188,23 @@ impl VM {
                     let res = self.binary_op(lhs, rhs, &op)?;
                     self.stack.push(res);
                 }
+                OpCode::Eq | OpCode::Lt | OpCode::Gt | OpCode::Leq | OpCode::Geq => {
+                    let rhs = self.stack.pop().ok_or("Stack underflow")?;
+                    let lhs = self.stack.pop().ok_or("Stack underflow")?;
 
+                    let res = match (lhs, rhs, &op) {
+                        (Value::Int(a), Value::Int(b), OpCode::Eq) => Value::Bool(a == b),
+
+                        (Value::Int(a), Value::Int(b), OpCode::Lt) => Value::Bool(a < b),
+                        (Value::Int(a), Value::Int(b), OpCode::Geq) => Value::Bool(a >= b),
+
+                        (Value::Int(a), Value::Int(b), OpCode::Gt) => Value::Bool(a > b),
+                        (Value::Int(a), Value::Int(b), OpCode::Leq) => Value::Bool(a <= b),
+
+                        _ => return Err("Comparison requires Integers".to_string()),
+                    };
+                    self.stack.push(res);
+                }
                 OpCode::Load(name) => {
                     // Peek the LAST value in the vector (most recent shadowing)
                     let val = if let Some(frame) = self.frames.last() {
@@ -349,7 +362,12 @@ impl VM {
             let op = self.code[self.ip].clone();
 
             // --- LOGGING ---
-            print!("[IP:{:03}] {:<25} | Stack: {:?}", self.ip, op.to_string(), self.stack);
+            print!(
+                "[IP:{:03}] {:<25} | Stack: {:?}",
+                self.ip,
+                op.to_string(),
+                self.stack
+            );
             if let Some(frame) = self.frames.last() {
                 // Print a simplified view of locals (last value of each var)
                 print!(" | Locals: {{ ");
@@ -373,7 +391,7 @@ impl VM {
 
                 OpCode::Pop => {
                     self.stack.pop();
-                },
+                }
 
                 // Arithmetic
                 OpCode::Add => {
@@ -383,7 +401,7 @@ impl VM {
                         (Value::Int(x), Value::Int(y)) => self.stack.push(Value::Int(x + y)),
                         _ => return Err("Type mismatch Add".into()),
                     }
-                },
+                }
                 OpCode::Sub => {
                     let b = self.stack.pop().ok_or("Stack underflow")?;
                     let a = self.stack.pop().ok_or("Stack underflow")?;
@@ -391,7 +409,7 @@ impl VM {
                         (Value::Int(x), Value::Int(y)) => self.stack.push(Value::Int(x - y)),
                         _ => return Err("Type mismatch Sub".into()),
                     }
-                },
+                }
                 OpCode::Mul => {
                     let b = self.stack.pop().ok_or("Stack underflow")?;
                     let a = self.stack.pop().ok_or("Stack underflow")?;
@@ -399,23 +417,45 @@ impl VM {
                         (Value::Int(x), Value::Int(y)) => self.stack.push(Value::Int(x * y)),
                         _ => return Err("Type mismatch Mul".into()),
                     }
-                },
+                }
                 OpCode::Div => {
                     let b = self.stack.pop().ok_or("Stack underflow")?;
                     let a = self.stack.pop().ok_or("Stack underflow")?;
                     match (a, b) {
                         (Value::Int(x), Value::Int(y)) => {
-                            if y == 0 { return Err("Div by zero".into()); }
+                            if y == 0 {
+                                return Err("Div by zero".into());
+                            }
                             self.stack.push(Value::Int(x / y));
-                        },
+                        }
                         _ => return Err("Type mismatch Div".into()),
                     }
-                },
+                }
+                OpCode::Eq | OpCode::Lt | OpCode::Gt | OpCode::Leq | OpCode::Geq => {
+                    let rhs = self.stack.pop().ok_or("Stack underflow")?;
+                    let lhs = self.stack.pop().ok_or("Stack underflow")?;
+
+                    let res = match (lhs, rhs, &op) {
+                        (Value::Int(a), Value::Int(b), OpCode::Eq) => Value::Bool(a == b),
+
+                        (Value::Int(a), Value::Int(b), OpCode::Lt) => Value::Bool(a < b),
+                        (Value::Int(a), Value::Int(b), OpCode::Geq) => Value::Bool(a >= b),
+
+                        (Value::Int(a), Value::Int(b), OpCode::Gt) => Value::Bool(a > b),
+                        (Value::Int(a), Value::Int(b), OpCode::Leq) => Value::Bool(a <= b),
+
+                        _ => return Err("Comparison requires Integers".to_string()),
+                    };
+                    self.stack.push(res);
+                }
 
                 // Variable Access
                 OpCode::Load(name) => {
                     let val = if let Some(frame) = self.frames.last() {
-                        frame.locals.get(&name).and_then(|v| v.last())
+                        frame
+                            .locals
+                            .get(&name)
+                            .and_then(|v| v.last())
                             .or_else(|| self.globals.get(&name))
                     } else {
                         self.globals.get(&name)
@@ -425,7 +465,7 @@ impl VM {
                         Some(v) => self.stack.push(v.clone()),
                         None => return Err(format!("Undefined variable '{}'", name)),
                     }
-                },
+                }
 
                 OpCode::Store(name) => {
                     let val = self.stack.pop().ok_or("Stack underflow")?;
@@ -436,7 +476,7 @@ impl VM {
                         // but safe fallback:
                         self.globals.insert(name, val);
                     }
-                },
+                }
 
                 OpCode::PopBinding(name) => {
                     if let Some(frame) = self.frames.last_mut() {
@@ -447,18 +487,18 @@ impl VM {
                             }
                         }
                     }
-                },
+                }
 
                 // Jumps
                 OpCode::Jump(addr) => {
                     self.ip = addr;
-                },
+                }
                 OpCode::JumpIfFalse(addr) => {
                     let val = self.stack.pop().ok_or("Stack underflow")?;
                     if let Value::Bool(false) = val {
                         self.ip = addr;
                     }
-                },
+                }
 
                 // Functions
                 OpCode::MakeClosure { addr, param } => {
@@ -471,8 +511,12 @@ impl VM {
                             }
                         }
                     }
-                    self.stack.push(Value::Closure { addr, param, env: flat_env });
-                },
+                    self.stack.push(Value::Closure {
+                        addr,
+                        param,
+                        env: flat_env,
+                    });
+                }
 
                 OpCode::Call => {
                     let arg = self.stack.pop().ok_or("Stack underflow")?;
@@ -495,7 +539,7 @@ impl VM {
                     } else {
                         return Err("Calling non-function".into());
                     }
-                },
+                }
 
                 OpCode::Return => {
                     if let Some(frame) = self.frames.pop() {

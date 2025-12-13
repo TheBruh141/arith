@@ -23,13 +23,17 @@ impl Compiler {
                     BinaryOp::Sub => self.emit(OpCode::Sub),
                     BinaryOp::Mul => self.emit(OpCode::Mul),
                     BinaryOp::Div => self.emit(OpCode::Div),
+                    BinaryOp::Equals => self.emit(OpCode::Eq),
+                    BinaryOp::LessThan => self.emit(OpCode::Lt),
+                    BinaryOp::GreaterThan => self.emit(OpCode::Gt),
+                    BinaryOp::LessThanEquals => self.emit(OpCode::Leq),
+                    BinaryOp::GreaterThanEquals => self.emit(OpCode::Geq),
                 }
             }
 
             Expr::Var(name) => self.emit(OpCode::Load(name.clone())),
 
             // compiler.rs
-
             Expr::Let(name, val_expr, body_expr) => {
                 // 1. Compile Value (e.g., 5)
                 self.compile(val_expr);

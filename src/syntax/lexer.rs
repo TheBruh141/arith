@@ -55,6 +55,8 @@ pub enum Token {
     RAngle,
     #[token(",")]
     Comma,
+    #[token("==")]
+    EqEq,
 
     // Literals
     #[regex("[a-zA-Z_][a-zA-Z0-9_]*", |lex| lex.slice().to_string())]

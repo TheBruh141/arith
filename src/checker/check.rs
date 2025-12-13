@@ -67,6 +67,11 @@ pub fn check_expr(ctx: &Context, expr: &Expr) -> Result<Type> {
             match op {
                 BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div => Ok(Type::Int),
                 // If we add comparison ops later, they return Bool
+                BinaryOp::Equals
+                | BinaryOp::LessThan
+                | BinaryOp::GreaterThan
+                | BinaryOp::LessThanEquals
+                | BinaryOp::GreaterThanEquals => Ok(Type::Bool),
             }
         }
 
@@ -115,8 +120,7 @@ mod tests {
     }
 
     fn ty(src: &str, ctx: Context) -> Result<Type> {
-        let expr =
-            parse(src).unwrap_or_else(|e| panic!("parse failed for `{src}`: {e:#?}"));
+        let expr = parse(src).unwrap_or_else(|e| panic!("parse failed for `{src}`: {e:#?}"));
         check_expr(&ctx, &expr)
     }
 
@@ -133,8 +137,7 @@ mod tests {
         let c = ctx(&[("x", Type::Int)]);
         assert_eq!(check_expr(&c, &Expr::Var("x".into())).unwrap(), Type::Int);
 
-        let err =
-            check_expr(&Context::new(), &Expr::Var("nope".into())).unwrap_err();
+        let err = check_expr(&Context::new(), &Expr::Var("nope".into())).unwrap_err();
         match err {
             TypeError::UnknownVar(v) => assert_eq!(v, "nope"),
             other => panic!("unexpected error: {:?}", other),
@@ -150,8 +153,7 @@ mod tests {
 
     #[test]
     fn app_correct() {
-        let lam =
-            Expr::Abs("x".into(), Type::Int, Box::new(Expr::Var("x".into())));
+        let lam = Expr::Abs("x".into(), Type::Int, Box::new(Expr::Var("x".into())));
         let app = Expr::App(Box::new(lam), Box::new(Expr::Int(1)));
 
         let ty = check_expr(&Context::new(), &app).unwrap();
@@ -207,7 +209,10 @@ mod tests {
 
     #[test]
     fn lambda_simple() {
-        check!(".\\x: Int -> x", Type::Arrow(Box::new(Type::Int), Box::new(Type::Int)));
+        check!(
+            ".\\x: Int -> x",
+            Type::Arrow(Box::new(Type::Int), Box::new(Type::Int))
+        );
     }
 
     #[test]

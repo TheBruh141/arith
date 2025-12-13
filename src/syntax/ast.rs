@@ -6,6 +6,13 @@ pub enum BinaryOp {
     Sub,
     Mul,
     Div,
+
+    // conditionals
+    Equals,            // ==
+    LessThan,          // <
+    GreaterThan,       // >
+    LessThanEquals,    // <=
+    GreaterThanEquals, // =>
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -49,6 +56,12 @@ impl Display for BinaryOp {
             BinaryOp::Sub => write!(f, "BinaryOp(Sub)"),
             BinaryOp::Mul => write!(f, "BinaryOp(Mul)"),
             BinaryOp::Div => write!(f, "BinaryOp(Div)"),
+
+            BinaryOp::Equals => write!(f, "BinaryOp(Equals)"),
+            BinaryOp::LessThan => write!(f, "BinaryOp(LessThan)"),
+            BinaryOp::GreaterThan => write!(f, "BinaryOp(GreaterThan)"),
+            BinaryOp::LessThanEquals => write!(f, "BinaryOp(LessThanEquals)"),
+            BinaryOp::GreaterThanEquals => write!(f, "BinaryOp(GreaterThanEquals"),
         }
     }
 }

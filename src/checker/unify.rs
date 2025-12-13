@@ -1,4 +1,5 @@
 use crate::syntax::ast::{BinaryOp, Type, TypeExpr};
+use log::{debug, log};
 
 #[derive(Debug)]
 pub enum TypeError {
@@ -47,7 +48,11 @@ fn unify_dim(d1: &TypeExpr, d2: &TypeExpr) -> Result<()> {
         Err(TypeError::DimensionMismatch(d1.clone(), d2.clone()))
     }
 }
-
+/// Compile-Time Constant Evaluator
+///
+/// This function attempts to run math *inside the type system*.
+/// Input: A type expression (like `2 + 2` inside `Vector<Int, 2+2>`)
+/// Output: The calculated integer, or None if it can't be calculated yet.
 fn eval_const(expr: &TypeExpr) -> Option<i64> {
     match expr {
         TypeExpr::Lit(n) => Some(*n),
@@ -64,6 +69,10 @@ fn eval_const(expr: &TypeExpr) -> Option<i64> {
                     } else {
                         None
                     }
+                }
+                _ => {
+                    debug!("[unify-eval_const]unhandled eval_const {op}");
+                    None
                 }
             }
         }

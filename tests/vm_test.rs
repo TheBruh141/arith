@@ -1,18 +1,19 @@
 #[cfg(test)]
 mod tests {
     use arith::syntax::parser; // Import your parser function
-    use chumsky::Parser;
     use arith::syntax::parser::parser;
     use arith::vm::trans_ast_bytecode::Compiler;
-    use arith::vm::vm::{Value, VM};
+    use arith::vm::vm::{VM, Value};
+    use chumsky::Parser;
 
     /// Helper function to compile and run a string of source code.
     /// Returns the final Value or panics if parsing/execution fails.
     fn run(source: &str) -> Value {
         let parser = parser();
-        let ast = parser.parse(source).map_err(|e| {
-            format!("Parse Error: {:?}", e)
-        }).expect("Parsing failed");
+        let ast = parser
+            .parse(source)
+            .map_err(|e| format!("Parse Error: {:?}", e))
+            .expect("Parsing failed");
 
         let mut compiler = Compiler::new();
         compiler.compile(&ast);
@@ -227,5 +228,130 @@ mod tests {
         // calc false = 5 * 10 = 50
         // Result = 15 + 50 = 65
         assert_eq!(run(src), Value::Int(65));
+    }
+
+    // ========================================================================
+    // 7. COMPARISONS AND LOGIC
+    // ========================================================================
+
+    #[test]
+    fn test_equality() {
+        assert_eq!(run("10 == 10"), Value::Bool(true));
+        assert_eq!(run("10 == 20"), Value::Bool(false));
+        // Test that evaluation happens on both sides
+        assert_eq!(run("1 + 1 == 2"), Value::Bool(true));
+    }
+
+    #[test]
+    fn test_less_than() {
+        assert_eq!(run("10 < 20"), Value::Bool(true));
+        assert_eq!(run("20 < 10"), Value::Bool(false));
+        assert_eq!(run("10 < 10"), Value::Bool(false)); // Strict less than
+    }
+
+    #[test]
+    fn test_greater_than() {
+        assert_eq!(run("20 > 10"), Value::Bool(true));
+        assert_eq!(run("10 > 20"), Value::Bool(false));
+        assert_eq!(run("10 > 10"), Value::Bool(false)); // Strict greater than
+    }
+
+    #[test]
+    fn test_less_than_or_equal() {
+        // Assuming <= is implemented in Lexer/Parser as "<="
+        assert_eq!(run("10 <= 20"), Value::Bool(true));
+        assert_eq!(run("10 <= 10"), Value::Bool(true)); // Boundary check
+        assert_eq!(run("20 <= 10"), Value::Bool(false));
+    }
+
+    #[test]
+    fn test_greater_than_or_equal() {
+        // Assuming >= is implemented in Lexer/Parser as ">="
+        let inp = "20 >= 10";
+
+        // let p = parser();
+        // let parsed = p.parse(inp).unwrap();
+        // println!("{}", parsed.debug_ast(4));
+        assert_eq!(run("20 >= 10"), Value::Bool(true));
+        assert_eq!(run("10 >= 10"), Value::Bool(true)); // Boundary check
+        assert_eq!(run("5 >= 10"), Value::Bool(false));
+    }
+
+    #[test]
+    fn test_logic_in_let() {
+        // Store a boolean result in a variable
+        let src = "
+            let isBig = 100 > 50 in
+            if isBig then 1 else 0
+        ";
+        assert_eq!(run(src), Value::Int(1));
+    }
+
+    #[test]
+    fn test_simulated_and_logic() {
+        // Since we don't have &&, we simulate `x > 0 && x < 10` using nested ifs
+        // Input: 5 (Should be 1)
+        let src_pass = "
+            let x = 5 in
+            if x > 0 then
+                if x < 10 then 1 else 0
+            else 0
+        ";
+        assert_eq!(run(src_pass), Value::Int(1));
+
+        // Input: 15 (Should be 0)
+        let src_fail_high = "
+            let x = 15 in
+            if x > 0 then
+                if x < 10 then 1 else 0
+            else 0
+        ";
+        assert_eq!(run(src_fail_high), Value::Int(0));
+
+        // Input: -5 (Should be 0)
+        let src_fail_low = "
+            let x = 0 - 5 in
+            if x > 0 then
+                if x < 10 then 1 else 0
+            else 0
+        ";
+        assert_eq!(run(src_fail_low), Value::Int(0));
+    }
+
+    #[test]
+    fn test_comparison_inside_lambda() {
+        // A function that checks if a number is positive
+        let src = "
+            let isPos = .\\ n : Int -> n > 0 in
+            if isPos 5 then 1 else 0
+        ";
+        assert_eq!(run(src), Value::Int(1));
+
+        let src_neg = "
+            let isPos = .\\ n : Int -> n > 0 in
+            if isPos (0-2) then 1 else 0
+        ";
+        assert_eq!(run(src_neg), Value::Int(0));
+    }
+
+    // ========================================================================
+    // 8. ERROR HANDLING (Panic Checks)
+    // ========================================================================
+
+    #[test]
+    #[should_panic(expected = "Parse Error")]
+    fn test_parse_error() {
+        run("1 +"); // Incomplete
+    }
+
+    #[test]
+    #[should_panic] // VM Runtime Error expected
+    fn test_runtime_type_error() {
+        // Note: The TypeChecker usually catches this, but if we bypassed it
+        // or if we had dynamic casting, the VM would also catch it.
+        // For now, this tests that the system explodes gracefully on bad logic.
+        // If TypeChecker runs before VM in `run()`, this might panic with "Type Mismatch"
+        // which is also acceptable.
+        run("if 1 then 2 else 3");
     }
 }

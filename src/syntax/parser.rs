@@ -1,10 +1,12 @@
 use crate::syntax::ast::{BinaryOp, Expr, Type, TypeExpr};
+use crate::syntax::lexer::Token;
 use chumsky::prelude::*;
 
 pub fn parser() -> impl Parser<char, Expr, Error = Simple<char>> {
     // 1. Define Identifiers and Keywords
     let keywords = [
-        "if", "then", "else", "let", "in", "true", "false", "Int", "Bool", "Vector",
+        "if", "then", "else", "let", "in", "true", "false", "Int", "Bool", "Vector", "==", "=",
+        ">=", "<=",
     ];
 
     let ident = text::ident().padded().try_map(move |s: String, span| {
@@ -139,6 +141,21 @@ pub fn parser() -> impl Parser<char, Expr, Error = Simple<char>> {
                 })
             });
 
+        let comparison = sum
+            .clone()
+            .then(
+                just("==")
+                    .to(BinaryOp::Equals)
+                    .or(just(">=").to(BinaryOp::GreaterThanEquals))
+                    .or(just("<=").to(BinaryOp::LessThanEquals))
+                    .or(just('<').to(BinaryOp::LessThan))
+                    .or(just('>').to(BinaryOp::GreaterThan))
+                    .padded()
+                    .then(sum.clone()) // Compare with another Sum
+                    .repeated(),
+            )
+            .foldl(|lhs, (op, rhs)| Expr::Binary(Box::new(lhs), op, Box::new(rhs)));
+
         let lambda = just(".\\")
             .padded()
             .ignore_then(ident.clone())
@@ -170,11 +187,11 @@ pub fn parser() -> impl Parser<char, Expr, Error = Simple<char>> {
 
         // The order here matters less now that `ident` correctly fails on keywords,
         // but explicit structures usually go first.
-        lambda.or(let_expr).or(if_expr).or(sum)
+        lambda.or(let_expr).or(if_expr).or(comparison)
     })
 }
 pub fn parse(input: &str) -> Result<Expr, Vec<Simple<char>>> {
-    parser().parse(input)
+    parser().then_ignore(end()).parse(input)
 }
 
 #[cfg(test)]
