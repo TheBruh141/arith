@@ -1,11 +1,34 @@
+use ariadne::{Color, Label, Report, ReportKind, Source};
+use arith::config::{Args, CliContext};
 use arith::execute;
+use clap::Parser;
+use std::ops::Range;
+use std::path::PathBuf;
+use std::process::exit;
+use std::{env, fs};
 
 fn main() {
-    // Example: (\x : Int -> x + 10) 5
-    let src = r#"
-        let f = .\ x : Int -> x * 2 in
-        let y = 10 in
-        f y
-    "#;
-    execute(src);
+    let args = Args::parse();
+
+    //  Reconstruct Context for fancy errors
+    let ctx = CliContext::new(&args.files);
+
+    // Run Checks
+    if let Err(report) = &args.check(&ctx) {
+        report
+            .print(("<command line>", Source::from(&ctx.full_command)))
+            .unwrap();
+        exit(1);
+    }
+    
+    let files = args.files.clone(); // maybe move to arc?
+    let comp_ops = &args.into_compiler_options();
+    
+    for path in files {
+        println!("Compiling {}...", path.display());
+        match fs::read_to_string(&path) {
+            Ok(src) => execute(&src, comp_ops),
+            Err(e) => eprintln!("Error: {}", e),
+        }
+    }
 }

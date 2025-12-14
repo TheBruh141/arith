@@ -1,15 +1,16 @@
-use chumsky::Parser;
+use crate::config::CompilerOptions;
 use crate::syntax::parser::parser;
 use crate::vm::trans_ast_bytecode::Compiler;
 use crate::vm::vm::VM;
+use chumsky::Parser;
+use clap::{Args, FromArgMatches};
 
 pub mod checker;
+pub mod config;
 pub mod syntax;
 pub mod vm;
 
-
-pub fn execute(source: &str) {
-    // 1. Parse
+pub fn execute(source: &str, compiler_options: &CompilerOptions) {
     let parser = parser();
     let ast = match parser.parse(source) {
         Ok(ast) => ast,
@@ -19,17 +20,23 @@ pub fn execute(source: &str) {
         }
     };
 
-    println!("AST: {:?}", ast);
+    if compiler_options.print_ast {
+        println!("AST: {}", ast.debug_ast(compiler_options.print_ast_indent_size));
+    }
 
-    // 2. Compile
     let mut compiler = Compiler::new();
     compiler.compile(&ast);
-    println!("Bytecode: {:?}", compiler.code);
+
+    if compiler_options.print_bytecode {
+        println!("Bytecode: {:?}", compiler.code);
+
+    }
 
     // 3. Run VM
     let mut vm = VM::new(compiler.code);
     match vm.run() {
         Ok(result) => println!("Result: {}", result),
-        Err(e) => println!("VM Error: {}", e),
+        Err(e) => eprintln!("VM Error: {}", e),
     }
 }
+
