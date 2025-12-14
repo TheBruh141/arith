@@ -1,85 +1,50 @@
 use crate::syntax::ast::{BinaryOp, Expr, Type, TypeExpr};
 use crate::syntax::lexer::Token;
 use chumsky::prelude::*;
+use logos::Logos;
 
-pub fn parser() -> impl Parser<char, Expr, Error = Simple<char>> {
-    // 1. Define Identifiers and Keywords
-    let keywords = [
-        "if", "then", "else", "let", "in", "true", "false", "Int", "Bool", "Vector", "==", "=",
-        ">=", "<=",
-    ];
+pub fn parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
+    let ident = select! { Token::Ident(id) => id };
+    let int_lit = select! { Token::Num(n) => n };
 
-    let ident = text::ident().padded().try_map(move |s: String, span| {
-        if keywords.contains(&s.as_str()) {
-            Err(Simple::custom(
-                span,
-                format!("'{}' is a reserved keyword", s),
-            ))
-        } else {
-            Ok(s)
-        }
-    });
-
-    let int_lit = text::int(10)
-        .map(|s: String| s.parse::<i64>().unwrap())
-        .padded();
-
-    // 2. Type Expression Parser
     let type_expr = recursive(|type_expr| {
         let atom = int_lit
-            .clone()
             .map(TypeExpr::Lit)
-            .or(ident.clone().map(TypeExpr::Var))
-            .padded()
-            .delimited_by(just('('), just(')'))
-            .or(int_lit.clone().map(TypeExpr::Lit))
-            .or(ident.clone().map(TypeExpr::Var))
-            .padded();
+            .or(ident.map(TypeExpr::Var))
+            .or(type_expr.delimited_by(just(Token::LParen), just(Token::RParen)));
 
         let product = atom
             .clone()
-            .then(just('*').padded().ignore_then(atom).repeated())
-            .map(|(lhs, rhs)| {
-                rhs.into_iter().fold(lhs, |acc, r| {
-                    TypeExpr::Binary(Box::new(acc), BinaryOp::Mul, Box::new(r))
-                })
-            });
+            .then(just(Token::Mul).ignore_then(atom).repeated())
+            .foldl(|lhs, rhs| TypeExpr::Binary(Box::new(lhs), BinaryOp::Mul, Box::new(rhs)));
 
-        let sum = product
+        
+
+        product
             .clone()
-            .then(just('+').padded().ignore_then(product).repeated())
-            .map(|(lhs, rhs)| {
-                rhs.into_iter().fold(lhs, |acc, r| {
-                    TypeExpr::Binary(Box::new(acc), BinaryOp::Add, Box::new(r))
-                })
-            });
-
-        sum
+            .then(just(Token::Plus).ignore_then(product).repeated())
+            .foldl(|lhs, rhs| TypeExpr::Binary(Box::new(lhs), BinaryOp::Add, Box::new(rhs)))
     });
 
-    // 3. Main Type Parser
     let type_parser = recursive(|type_def| {
-        let base = just("Int")
+        let base = just(Token::TInt)
             .to(Type::Int)
-            .or(just("Bool").to(Type::Bool))
-            .or(just("Vector")
-                .padded()
+            .or(just(Token::TBool).to(Type::Bool))
+            .or(just(Token::TVector)
                 .ignore_then(
                     type_def
                         .clone()
-                        .then_ignore(just(',').padded())
-                        .then(type_expr.clone())
-                        .delimited_by(just('<'), just('>')),
+                        .then_ignore(just(Token::Comma))
+                        .then(type_expr)
+                        .delimited_by(just(Token::LAngle), just(Token::RAngle)),
                 )
                 .map(|(t, n)| Type::Vector(Box::new(t), n)));
 
-        let atom = base
-            .padded()
-            .or(type_def.delimited_by(just('('), just(')')))
-            .padded();
+        let atom = base.or(type_def.delimited_by(just(Token::LParen), just(Token::RParen)));
 
+        // Arrow is Right Associative: Int -> (Int -> Int)
         atom.clone()
-            .separated_by(just("->").padded())
+            .separated_by(just(Token::Arrow))
             .at_least(1)
             .map(|types| {
                 let mut iter = types.into_iter().rev();
@@ -88,110 +53,108 @@ pub fn parser() -> impl Parser<char, Expr, Error = Simple<char>> {
             })
     });
 
-    // 4. Expression Parser
     recursive(|expr| {
         let lit = int_lit
-            .clone()
             .map(Expr::Int)
-            .or(just("true").to(Expr::Bool(true)))
-            .or(just("false").to(Expr::Bool(false)));
+            .or(just(Token::True).to(Expr::Bool(true)))
+            .or(just(Token::False).to(Expr::Bool(false)));
 
-        let atom = lit
-            .or(ident.clone().map(Expr::Var))
-            .or(expr.clone().delimited_by(just('('), just(')')))
-            .padded();
+        let atom = lit.or(ident.map(Expr::Var)).or(expr
+            .clone()
+            .delimited_by(just(Token::LParen), just(Token::RParen)));
 
+        // Function Application: f x y
         let app = atom
             .clone()
             .then(atom.clone().repeated())
-            .map(|(func, args)| {
-                args.into_iter()
-                    .fold(func, |acc, arg| Expr::App(Box::new(acc), Box::new(arg)))
-            });
+            .foldl(|func, arg| Expr::App(Box::new(func), Box::new(arg)));
 
+        // Math: Product (* /)
         let product = app
             .clone()
             .then(
-                just('*')
+                just(Token::Mul)
                     .to(BinaryOp::Mul)
-                    .or(just('/').to(BinaryOp::Div))
-                    .padded()
+                    .or(just(Token::Div).to(BinaryOp::Div))
                     .then(app.clone())
-                    .repeated(),
-            )
-            .map(|(lhs, rest)| {
-                rest.into_iter().fold(lhs, |acc, (op, val)| {
-                    Expr::Binary(Box::new(acc), op, Box::new(val))
-                })
-            });
-
-        let sum = product
-            .clone()
-            .then(
-                just('+')
-                    .to(BinaryOp::Add)
-                    .or(just('-').to(BinaryOp::Sub))
-                    .padded()
-                    .then(product.clone())
-                    .repeated(),
-            )
-            .map(|(lhs, rest)| {
-                rest.into_iter().fold(lhs, |acc, (op, val)| {
-                    Expr::Binary(Box::new(acc), op, Box::new(val))
-                })
-            });
-
-        let comparison = sum
-            .clone()
-            .then(
-                just("==")
-                    .to(BinaryOp::Equals)
-                    .or(just(">=").to(BinaryOp::GreaterThanEquals))
-                    .or(just("<=").to(BinaryOp::LessThanEquals))
-                    .or(just('<').to(BinaryOp::LessThan))
-                    .or(just('>').to(BinaryOp::GreaterThan))
-                    .padded()
-                    .then(sum.clone()) // Compare with another Sum
                     .repeated(),
             )
             .foldl(|lhs, (op, rhs)| Expr::Binary(Box::new(lhs), op, Box::new(rhs)));
 
-        let lambda = just(".\\")
-            .padded()
-            .ignore_then(ident.clone())
-            .then_ignore(just(':').padded())
+        // Math: Sum (+ -)
+        let sum = product
+            .clone()
+            .then(
+                just(Token::Plus)
+                    .to(BinaryOp::Add)
+                    .or(just(Token::Minus).to(BinaryOp::Sub))
+                    .then(product.clone())
+                    .repeated(),
+            )
+            .foldl(|lhs, (op, rhs)| Expr::Binary(Box::new(lhs), op, Box::new(rhs)));
+
+        let comparison = sum
+            .clone()
+            .then(
+                just(Token::EqEq)
+                    .to(BinaryOp::Equals)
+                    .or(just(Token::Geq).to(BinaryOp::GreaterThanEquals))
+                    .or(just(Token::Leq).to(BinaryOp::LessThanEquals))
+                    .or(just(Token::LAngle).to(BinaryOp::LessThan))
+                    .or(just(Token::RAngle).to(BinaryOp::GreaterThan))
+                    .then(sum.clone())
+                    .repeated(),
+            )
+            .foldl(|lhs, (op, rhs)| Expr::Binary(Box::new(lhs), op, Box::new(rhs)));
+
+        // Structures
+        let lambda = just(Token::Lambda)
+            .ignore_then(ident)
+            .then_ignore(just(Token::Colon))
             .then(type_parser.clone())
-            .then_ignore(just("->").padded())
+            .then_ignore(just(Token::Arrow))
             .then(expr.clone())
             .map(|((var, ty), body)| Expr::Abs(var, ty, Box::new(body)));
 
-        let let_expr = just("let")
-            .padded()
-            .ignore_then(ident.clone())
-            .then_ignore(just('=').padded())
+        let let_expr = just(Token::Let)
+            .ignore_then(ident)
+            .then_ignore(just(Token::Eq))
             .then(expr.clone())
-            .then_ignore(just("in").padded())
+            .then_ignore(just(Token::In))
             .then(expr.clone())
             .map(|((var, e1), e2)| Expr::Let(var, Box::new(e1), Box::new(e2)));
 
-        let if_expr = just("if")
-            .padded()
+        let if_expr = just(Token::If)
             .ignore_then(expr.clone())
-            .then_ignore(just("then").padded())
+            .then_ignore(just(Token::Then))
             .then(expr.clone())
-            .then_ignore(just("else").padded())
+            .then_ignore(just(Token::Else))
             .then(expr.clone())
             .map(|((cond, then_e), else_e)| {
                 Expr::If(Box::new(cond), Box::new(then_e), Box::new(else_e))
             });
 
-        // The order here matters less now that `ident` correctly fails on keywords,
-        // but explicit structures usually go first.
         lambda.or(let_expr).or(if_expr).or(comparison)
     })
 }
-pub fn parse(input: &str) -> Result<Expr, Vec<Simple<char>>> {
-    parser().then_ignore(end()).parse(input)
+pub fn parse(input: &str) -> Result<Expr, Vec<Simple<Token>>> {
+    // 1. Lex the input WITH spans
+    // .spanned() turns the iterator into items of (Result<Token, _>, Range<usize>)
+    let tokens: Vec<(Token, std::ops::Range<usize>)> = Token::lexer(input)
+        .spanned()
+        .filter_map(|(token, span)| match token {
+            Ok(t) => Some((t, span)),
+            Err(_) => None, // Skip invalid characters (or handle lexer errors here)
+        })
+        .collect();
+
+    // Calculate end of file span for error reporting at EOF
+    let eof = input.len()..input.len();
+
+    // 2. Parse the stream of (Token, Span) tuples
+    parser()
+        .then_ignore(end())
+        .parse(chumsky::Stream::from_iter(eof, tokens.into_iter()))
 }
 
 #[cfg(test)]

@@ -1,11 +1,9 @@
-use ariadne::{Color, Label, Report, ReportKind, Source};
+use ariadne::Source;
 use arith::config::{Args, CliContext};
 use arith::execute;
 use clap::Parser;
-use std::ops::Range;
-use std::path::PathBuf;
 use std::process::exit;
-use std::{env, fs};
+use std::fs;
 
 fn main() {
     let args = Args::parse();

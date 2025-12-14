@@ -5,6 +5,12 @@ pub struct Compiler {
     pub code: Vec<OpCode>,
 }
 
+impl Default for Compiler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Compiler {
     pub fn new() -> Self {
         Self { code: Vec::new() }
@@ -33,46 +39,34 @@ impl Compiler {
 
             Expr::Var(name) => self.emit(OpCode::Load(name.clone())),
 
-            // compiler.rs
             Expr::Let(name, val_expr, body_expr) => {
-                // 1. Compile Value (e.g., 5)
+                // lhs push
                 self.compile(val_expr);
-
-                // 2. Store it (e.g., x = 5).
-                // This pushes 5 onto the locals stack for 'x'.
                 self.emit(OpCode::Store(name.clone()));
 
-                // 3. Compile Body (e.g., returns x)
+                // rhs push
                 self.compile(body_expr);
-
-                // 4. CRITICAL: Un-shadow 'x'.
-                // If you miss this line, 'x' stays 5 forever in this frame!
                 self.emit(OpCode::PopBinding(name.clone()));
             }
 
             Expr::If(cond, then_expr, else_expr) => {
-                // 1. Compile Condition
                 self.compile(cond);
 
-                // 2. Emit placeholder JumpIfFalse
                 let else_jump_idx = self.code.len();
                 self.emit(OpCode::JumpIfFalse(0)); // Placeholder
 
-                // 3. Compile 'Then' block
                 self.compile(then_expr);
 
-                // 4. Emit placeholder Jump (skip else block)
                 let end_jump_idx = self.code.len();
                 self.emit(OpCode::Jump(0)); // Placeholder
 
-                // 5. Patch JumpIfFalse to point here (start of Else)
+                // Patch JumpIfFalse to point here (start of Else)
                 let else_start = self.code.len();
                 self.code[else_jump_idx] = OpCode::JumpIfFalse(else_start);
 
-                // 6. Compile 'Else' block
                 self.compile(else_expr);
 
-                // 7. Patch Jump to point here (End)
+                // Patch Jump to point here (End)
                 let end_pos = self.code.len();
                 self.code[end_jump_idx] = OpCode::Jump(end_pos);
             }

@@ -1,3 +1,8 @@
+--[[
+  Math Suite
+  Tests: Closures, Shadows, and Comparisons
+]]
+
 let abs = .\ n : Int ->
     if n < 0 then 0 - n else n
 in

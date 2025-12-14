@@ -1,4 +1,4 @@
-use arith::syntax::parser::parser;
+use arith::syntax::parser::{parse, parser};
 use arith::vm::trans_ast_bytecode::Compiler;
 use arith::vm::vm::VM;
 use chumsky::Parser;
@@ -77,7 +77,7 @@ pub fn feature_benchmarks(c: &mut Criterion) {
     let mut group = c.benchmark_group("Micro_ALU");
     for size in [100, 1000].iter() {
         let src = gen_arithmetic(*size);
-        let ast = parser.parse(&*src).unwrap();
+        let ast = parse(src.as_str()).unwrap();
         let mut compiler = Compiler::new();
         compiler.compile(&ast);
         let code = compiler.code;
@@ -96,7 +96,7 @@ pub fn feature_benchmarks(c: &mut Criterion) {
     let mut group = c.benchmark_group("Micro_VarLookup");
     for size in [100, 1000].iter() {
         let src = gen_var_access(*size);
-        let ast = parser.parse(&*src).unwrap();
+        let ast = parse(src.as_str()).unwrap();
         let mut compiler = Compiler::new();
         compiler.compile(&ast);
         let code = compiler.code;
@@ -115,7 +115,7 @@ pub fn feature_benchmarks(c: &mut Criterion) {
     let mut group = c.benchmark_group("Micro_Branching");
     for depth in [10, 50].iter() {
         let src = gen_branching(*depth);
-        let ast = parser.parse(&*src).unwrap();
+        let ast = parse(src.as_str()).unwrap();
         let mut compiler = Compiler::new();
         compiler.compile(&ast);
         let code = compiler.code;
@@ -134,7 +134,7 @@ pub fn feature_benchmarks(c: &mut Criterion) {
     let mut group = c.benchmark_group("Macro_FunctionCalls");
     for depth in [10, 100].iter() {
         let src = gen_call_chain(*depth);
-        let ast = parser.parse(&*src).unwrap();
+        let ast = parse(&*src).unwrap();
         let mut compiler = Compiler::new();
         compiler.compile(&ast);
         let code = compiler.code;
@@ -153,7 +153,7 @@ pub fn feature_benchmarks(c: &mut Criterion) {
     let mut group = c.benchmark_group("Macro_ClosureCapture");
     for vars in [10, 50].iter() {
         let src = gen_closure_capture(*vars);
-        let ast = parser.parse(&*src).unwrap();
+        let ast = parse(&*src).unwrap();
         let mut compiler = Compiler::new();
         compiler.compile(&ast);
         let code = compiler.code;

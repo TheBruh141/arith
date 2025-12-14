@@ -1,7 +1,5 @@
-use crate::syntax::ast::{BinaryOp, Expr};
 use std::collections::HashMap;
 use std::fmt;
-use std::rc::Rc;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Value {
@@ -266,9 +264,6 @@ impl VM {
                         }
                     }
 
-                    // Merge globals if you want closures to capture them,
-                    // though typically globals are always available.
-
                     self.stack.push(Value::Closure {
                         addr,
                         param,
@@ -283,7 +278,7 @@ impl VM {
                     if let Value::Closure {
                         addr,
                         param,
-                        mut env,
+                        env,
                     } = func
                     {
                         // Convert flat env back to shadowing-capable env
@@ -292,7 +287,7 @@ impl VM {
                             local_env.insert(k, vec![v]);
                         }
                         // Bind argument
-                        local_env.entry(param).or_insert_with(Vec::new).push(arg);
+                        local_env.entry(param).or_default().push(arg);
 
                         self.frames.push(CallFrame {
                             return_ip: self.ip,
@@ -313,15 +308,14 @@ impl VM {
                     }
                 }
                 OpCode::PopBinding(name) => {
-                    if let Some(frame) = self.frames.last_mut() {
-                        if let Some(vec) = frame.locals.get_mut(&name) {
+                    if let Some(frame) = self.frames.last_mut()
+                        && let Some(vec) = frame.locals.get_mut(&name) {
                             vec.pop();
                             // Optional: clean up empty vectors
                             if vec.is_empty() {
                                 frame.locals.remove(&name);
                             }
                         }
-                    }
                     // We don't pop globals in this language
                 }
             }
@@ -479,14 +473,13 @@ impl VM {
                 }
 
                 OpCode::PopBinding(name) => {
-                    if let Some(frame) = self.frames.last_mut() {
-                        if let Some(vec) = frame.locals.get_mut(&name) {
+                    if let Some(frame) = self.frames.last_mut()
+                        && let Some(vec) = frame.locals.get_mut(&name) {
                             vec.pop();
                             if vec.is_empty() {
                                 frame.locals.remove(&name);
                             }
                         }
-                    }
                 }
 
                 // Jumps
@@ -529,7 +522,7 @@ impl VM {
                             local_env.insert(k, vec![v]);
                         }
                         // Bind argument
-                        local_env.entry(param).or_insert_with(Vec::new).push(arg);
+                        local_env.entry(param).or_default().push(arg);
 
                         self.frames.push(CallFrame {
                             return_ip: self.ip,

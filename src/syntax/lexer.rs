@@ -1,7 +1,7 @@
 use logos::Logos;
 use std::fmt;
 
-#[derive(Logos, Debug, PartialEq, Clone)]
+#[derive(Logos, Debug, PartialEq, Clone, Hash, Eq)] 
 #[logos(skip r"[ \t\n\f]+")] // Skip whitespace
 pub enum Token {
     // Keywords
@@ -36,7 +36,7 @@ pub enum Token {
     #[token(":")]
     Colon,
     #[token("=")]
-    Eq,
+    Eq, // Assignment
     #[token("+")]
     Plus,
     #[token("-")]
@@ -55,8 +55,14 @@ pub enum Token {
     RAngle,
     #[token(",")]
     Comma,
+
+    // Comparators
     #[token("==")]
     EqEq,
+    #[token(">=")]
+    Geq, 
+    #[token("<=")]
+    Leq,
 
     // Literals
     #[regex("[a-zA-Z_][a-zA-Z0-9_]*", |lex| lex.slice().to_string())]
@@ -64,6 +70,12 @@ pub enum Token {
 
     #[regex("[0-9]+", |lex| lex.slice().parse().ok())]
     Num(i64),
+
+    // Comments
+    #[regex(r"--\[\[(?:[^\]]|\][^\]])*\]\]", logos::skip)]
+    BlockComment,
+    #[regex(r"--[^\n]*", logos::skip, allow_greedy = true)]
+    LineComment,
 }
 
 impl fmt::Display for Token {

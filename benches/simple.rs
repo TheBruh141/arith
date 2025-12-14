@@ -34,13 +34,11 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     group.sample_size(50); // Parsing is slow, reduce samples if needed
 
     group.bench_function("parse_arithmetic_1000_ops", |b| {
-        let p = parser();
-        b.iter(|| p.parse(black_box(huge_math_source.clone())).unwrap())
+        b.iter(|| parse(black_box(huge_math_source.clone().as_str())).unwrap())
     });
 
     group.bench_function("parse_nested_scope_500_depth", |b| {
-        let p = parser();
-        b.iter(|| p.parse(black_box(deep_scope_source.clone())).unwrap())
+        b.iter(|| parse(black_box(deep_scope_source.clone().as_str())).unwrap())
     });
     group.finish();
 
@@ -50,9 +48,8 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     let mut group = c.benchmark_group("compiler");
 
     // Pre-parse ASTs so we only measure compilation
-    let p = parser();
-    let math_ast = p.parse(huge_math_source).unwrap();
-    let scope_ast = p.parse(deep_scope_source).unwrap();
+    let math_ast = parse(huge_math_source.as_str()).unwrap();
+    let scope_ast = parse(deep_scope_source.as_str()).unwrap();
 
     group.bench_function("compile_arithmetic", |b| {
         b.iter(|| {
@@ -90,7 +87,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
         b.iter(|| {
             // We must clone the code for every run because the VM consumes/modifies state
             // (Note: In a read-only code VM, we wouldn't need to clone instructions,
-            // but your VM might modify instruction pointers or stack)
+            // but VM might modify instruction pointers or stack, I'm tired...)
             let mut vm = VM::new(math_code.clone());
             vm.run().unwrap()
         })

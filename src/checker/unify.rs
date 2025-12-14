@@ -1,5 +1,5 @@
 use crate::syntax::ast::{BinaryOp, Type, TypeExpr};
-use log::{debug, log};
+use log::debug;
 
 #[derive(Debug)]
 pub enum TypeError {
@@ -39,11 +39,10 @@ fn unify_dim(d1: &TypeExpr, d2: &TypeExpr) -> Result<()> {
         Ok(())
     } else {
         // Try to evaluate constant expressions
-        if let (Some(n1), Some(n2)) = (eval_const(d1), eval_const(d2)) {
-            if n1 == n2 {
+        if let (Some(n1), Some(n2)) = (eval_const(d1), eval_const(d2))
+            && n1 == n2 {
                 return Ok(());
             }
-        }
 
         Err(TypeError::DimensionMismatch(d1.clone(), d2.clone()))
     }

@@ -200,7 +200,7 @@ impl Args {
 
         opts
     }
-    pub fn check(&self, ctx: &CliContext) -> Result<(), Report<(&'static str, Range<usize>)>> {
+    pub fn check(&self, ctx: &CliContext) -> Result<(), Report<'_, (&'static str, Range<usize>)>> {
         self.check_files_exist(ctx)?;
         self.check_file_extensions(ctx)?;
         self.check_nonempty_files(ctx)?;
@@ -211,7 +211,7 @@ impl Args {
     fn check_files_exist(
         &self,
         ctx: &CliContext,
-    ) -> Result<(), Report<(&'static str, Range<usize>)>> {
+    ) -> Result<(), Report<'_, (&'static str, Range<usize>)>> {
         for (i, file) in self.files.iter().enumerate() {
             if !file.exists() {
                 // Get the span from our context (defaults to 0..0 if logic missed it)
@@ -236,11 +236,11 @@ impl Args {
     fn check_file_extensions(
         &self,
         ctx: &CliContext,
-    ) -> Result<(), Report<(&'static str, Range<usize>)>> {
+    ) -> Result<(), Report<'_, (&'static str, Range<usize>)>> {
         for (i, file) in self.files.iter().enumerate() {
             let valid_ext = file
                 .extension()
-                .map_or(false, |ext| ext.eq_ignore_ascii_case("arith"));
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("arith"));
 
             if !valid_ext {
                 let span = ctx.arg_spans.get(i).cloned().unwrap_or(0..0);
@@ -262,7 +262,7 @@ impl Args {
     fn check_nonempty_files(
         &self,
         ctx: &CliContext,
-    ) -> Result<(), Report<(&'static str, Range<usize>)>> {
+    ) -> Result<(), Report<'_, (&'static str, Range<usize>)>> {
         for (i, file) in self.files.iter().enumerate() {
             // We read to check content, but error points to CLI argument
             let content = fs::read_to_string(file).unwrap_or_default();
@@ -287,11 +287,11 @@ impl Args {
     fn check_no_nul_bytes(
         &self,
         ctx: &CliContext,
-    ) -> Result<(), Report<(&'static str, Range<usize>)>> {
+    ) -> Result<(), Report<'_, (&'static str, Range<usize>)>> {
         for (i, file) in self.files.iter().enumerate() {
             let data = fs::read(file).unwrap_or_default();
 
-            if data.iter().any(|&b| b == 0) {
+            if data.contains(&0) {
                 let span = ctx.arg_spans.get(i).cloned().unwrap_or(0..0);
                 return Err(
                     Report::build(ReportKind::Error, ("<command line>", span.clone()))

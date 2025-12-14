@@ -1,9 +1,7 @@
 use crate::config::CompilerOptions;
-use crate::syntax::parser::parser;
+use crate::syntax::parser::parse;
 use crate::vm::trans_ast_bytecode::Compiler;
 use crate::vm::vm::VM;
-use chumsky::Parser;
-use clap::{Args, FromArgMatches};
 
 pub mod checker;
 pub mod config;
@@ -11,8 +9,7 @@ pub mod syntax;
 pub mod vm;
 
 pub fn execute(source: &str, compiler_options: &CompilerOptions) {
-    let parser = parser();
-    let ast = match parser.parse(source) {
+    let ast = match parse(source) {
         Ok(ast) => ast,
         Err(errs) => {
             errs.into_iter().for_each(|e| println!("{:?}", e));
