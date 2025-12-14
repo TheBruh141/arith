@@ -1,0 +1,37 @@
+let abs = .\ n : Int ->
+    if n < 0 then 0 - n else n
+in
+
+let mod = .\ a : Int -> .\ b : Int ->
+    a - (b * (a / b))
+in
+
+let is_even = .\ n : Int ->
+    (mod n 2) == 0
+in
+
+let clamp = .\ val : Int -> .\ min : Int -> .\ max : Int ->
+    if val < min then min
+    else if val > max then max
+    else val
+in
+
+let make_adder = .\ x : Int ->
+    .\ y : Int -> x + y
+in
+
+let add_10 = make_adder 10 in
+let add_50 = make_adder 50 in
+
+let vec_len = .\ v : Vector<Int, 4> -> 4 in
+
+let input_val = 0 - 42 in
+let clean_val = abs input_val in
+
+if is_even clean_val then
+    let res = add_10 clean_val in
+    clamp res 0 100
+else
+    let res = add_50 clean_val in
+    clamp res 0 100
+
