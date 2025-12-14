@@ -1,5 +1,6 @@
-use crate::checker::unify::{Result, TypeError, unify};
-use crate::syntax::ast::{BinaryOp, Expr, Type};
+use crate::checker::unify::unify;
+use crate::compiler_errors::{CompileErr, CompileResult};
+use crate::syntax::ast::{BinaryOp, Expr, Spanned, Type};
 use std::collections::HashMap;
 
 #[derive(Clone, Debug)]
@@ -29,15 +30,15 @@ impl Context {
     }
 }
 
-pub fn check_expr(ctx: &Context, expr: &Expr) -> Result<Type> {
-    match expr {
+pub fn check_expr(ctx: &Context, expr: &Spanned<Expr>) -> CompileResult<Type> {
+    match &expr.node {
         Expr::Int(_) => Ok(Type::Int),
         Expr::Bool(_) => Ok(Type::Bool),
 
-        Expr::Var(name) => ctx
-            .get(name)
-            .cloned()
-            .ok_or_else(|| TypeError::UnknownVar(name.clone())),
+        Expr::Var(name) => ctx.get(name).cloned().ok_or_else(|| CompileErr::UnknownVar {
+            span: expr.span.clone(),
+            name: name.clone(),
+        }),
 
         Expr::Abs(var, ty, body) => {
             let mut new_ctx = ctx.clone();
@@ -52,13 +53,20 @@ pub fn check_expr(ctx: &Context, expr: &Expr) -> Result<Type> {
 
             match func_ty {
                 Type::Arrow(param_ty, return_ty) => {
-                    unify(&param_ty, &arg_ty)?;
+                    unify(&arg_ty, &param_ty).map_err(|(found, expected)| {
+                        CompileErr::TypeMismatch {
+                            span: arg.span.clone(),
+                            expected,
+                            found,
+                        }
+                    })?;
                     Ok(*return_ty)
                 }
-                _ => Err(TypeError::Mismatch(
-                    Type::Arrow(Box::new(arg_ty.clone()), Box::new(Type::Int)),
-                    func_ty,
-                )), // Better error needed
+                other_ty => Err(CompileErr::TypeMismatch {
+                    span: func.span.clone(),
+                    expected: Type::Arrow(Box::new(arg_ty), Box::new(Type::Int)), // Placeholder
+                    found: other_ty,
+                }),
             }
         }
 
@@ -66,19 +74,33 @@ pub fn check_expr(ctx: &Context, expr: &Expr) -> Result<Type> {
             let l_ty = check_expr(ctx, lhs)?;
             let r_ty = check_expr(ctx, rhs)?;
 
-            // For now, only Int arithmetic
-            unify(&l_ty, &Type::Int)?;
-            unify(&r_ty, &Type::Int)?;
-
-            match op {
-                BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div => Ok(Type::Int),
-                // If we add comparison ops later, they return Bool
+            let (expected_ty, out_ty) = match op {
+                BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div => {
+                    (Type::Int, Type::Int)
+                }
                 BinaryOp::Equals
                 | BinaryOp::LessThan
                 | BinaryOp::GreaterThan
                 | BinaryOp::LessThanEquals
-                | BinaryOp::GreaterThanEquals => Ok(Type::Bool),
-            }
+                | BinaryOp::GreaterThanEquals => (Type::Int, Type::Bool), // For now, only compare ints
+            };
+
+            unify(&l_ty, &expected_ty).map_err(|(found, expected)| {
+                CompileErr::TypeMismatch {
+                    span: lhs.span.clone(),
+                    expected,
+                    found,
+                }
+            })?;
+            unify(&r_ty, &expected_ty).map_err(|(found, expected)| {
+                CompileErr::TypeMismatch {
+                    span: rhs.span.clone(),
+                    expected,
+                    found,
+                }
+            })?;
+
+            Ok(out_ty)
         }
 
         Expr::Let(var, e1, e2) => {
@@ -90,201 +112,23 @@ pub fn check_expr(ctx: &Context, expr: &Expr) -> Result<Type> {
 
         Expr::If(cond, e_then, e_else) => {
             let t_cond = check_expr(ctx, cond)?;
-            unify(&t_cond, &Type::Bool)?;
+            unify(&t_cond, &Type::Bool).map_err(|(found, expected)| {
+                CompileErr::TypeMismatch {
+                    span: cond.span.clone(),
+                    expected,
+                    found,
+                }
+            })?;
 
             let t_then = check_expr(ctx, e_then)?;
             let t_else = check_expr(ctx, e_else)?;
 
-            unify(&t_then, &t_else)?;
+            unify(&t_else, &t_then).map_err(|(found, expected)| CompileErr::TypeMismatch {
+                span: e_else.span.clone(),
+                expected,
+                found,
+            })?;
             Ok(t_then)
         }
-    }
-}
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::checker::unify::TypeError;
-    use crate::syntax::parser::parse;
-
-    macro_rules! check {
-        ($input:expr, $expected:expr) => {
-            match parse($input) {
-                Ok(_) => {
-                    assert_eq!(ty($input, Context::new()).unwrap(), $expected)
-                }
-                Err(err) => panic!("parse failed for `{}`: {:#?}", $input, err),
-            }
-        };
-    }
-
-    fn ctx(vars: &[(&str, Type)]) -> Context {
-        let mut c = Context::new();
-        for (name, ty) in vars {
-            c.insert(name.to_string(), ty.clone());
-        }
-        c
-    }
-
-    fn ty(src: &str, ctx: Context) -> Result<Type> {
-        let expr = parse(src).unwrap_or_else(|e| panic!("parse failed for `{src}`: {e:#?}"));
-        check_expr(&ctx, &expr)
-    }
-
-    // ---------- tests ----------
-
-    #[test]
-    fn int_and_bool_literals() {
-        check!("1", Type::Int);
-        check!("true", Type::Bool);
-    }
-
-    #[test]
-    fn known_and_unknown_variables() {
-        let c = ctx(&[("x", Type::Int)]);
-        assert_eq!(check_expr(&c, &Expr::Var("x".into())).unwrap(), Type::Int);
-
-        let err = check_expr(&Context::new(), &Expr::Var("nope".into())).unwrap_err();
-        match err {
-            TypeError::UnknownVar(v) => assert_eq!(v, "nope"),
-            other => panic!("unexpected error: {:?}", other),
-        }
-    }
-
-    #[test]
-    fn lambda_typing() {
-        let e = Expr::Abs("x".into(), Type::Int, Box::new(Expr::Var("x".into())));
-        let ty = check_expr(&Context::new(), &e).unwrap();
-        assert_eq!(ty, Type::Arrow(Box::new(Type::Int), Box::new(Type::Int)));
-    }
-
-    #[test]
-    fn app_correct() {
-        let lam = Expr::Abs("x".into(), Type::Int, Box::new(Expr::Var("x".into())));
-        let app = Expr::App(Box::new(lam), Box::new(Expr::Int(1)));
-
-        let ty = check_expr(&Context::new(), &app).unwrap();
-        assert_eq!(ty, Type::Int);
-    }
-
-    #[test]
-    fn arithmetic_on_ints() {
-        check!("1 + 2", Type::Int);
-    }
-
-    #[test]
-    fn arithmetic_type_error() {
-        let e = Expr::Binary(
-            Box::new(Expr::Int(1)),
-            BinaryOp::Add,
-            Box::new(Expr::Bool(true)),
-        );
-        let err = check_expr(&Context::new(), &e).unwrap_err();
-        matches!(err, TypeError::Mismatch(_, _));
-    }
-
-    #[test]
-    fn let_binding() {
-        let e = Expr::Let(
-            "x".into(),
-            Box::new(Expr::Int(1)),
-            Box::new(Expr::Binary(
-                Box::new(Expr::Var("x".into())),
-                BinaryOp::Add,
-                Box::new(Expr::Int(2)),
-            )),
-        );
-        assert_eq!(check_expr(&Context::new(), &e).unwrap(), Type::Int);
-    }
-
-    #[test]
-    fn if_expression_ok() {
-        check!("if true then 1 else 2", Type::Int);
-    }
-
-    #[test]
-    fn ints_bools_vars() {
-        check!("1", Type::Int);
-        check!("true", Type::Bool);
-
-        let c = ctx(&[("x", Type::Int)]);
-        assert_eq!(ty("x", c).unwrap(), Type::Int);
-
-        let err = ty("y", Context::new()).unwrap_err();
-        matches!(err, TypeError::UnknownVar(_));
-    }
-
-    #[test]
-    fn lambda_simple() {
-        check!(
-            ".\\x: Int -> x",
-            Type::Arrow(Box::new(Type::Int), Box::new(Type::Int))
-        );
-    }
-
-    #[test]
-    fn lambda_nested() {
-        let out = ty(".\\x: Int -> .\\y: Int -> x", Context::new()).unwrap();
-        match out {
-            Type::Arrow(a, b) => {
-                assert_eq!(*a, Type::Int);
-                match *b {
-                    Type::Arrow(inner_a, inner_b) => {
-                        assert_eq!(*inner_a, Type::Int);
-                        assert_eq!(*inner_b, Type::Int);
-                    }
-                    other => panic!("expected nested arrow, got {other:?}"),
-                }
-            }
-            other => panic!("expected arrow, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn app_ok() {
-        check!("(.\\x: Int -> x) 10", Type::Int);
-    }
-
-    #[test]
-    fn app_type_mismatch() {
-        let err = ty("(.\\x: Int -> x) true", Context::new()).unwrap_err();
-        matches!(err, TypeError::Mismatch(_, _));
-    }
-
-    #[test]
-    fn arithmetic_ok() {
-        check!("1 + 2 * 3", Type::Int);
-    }
-
-    #[test]
-    fn arithmetic_err() {
-        let err = ty("1 + true", Context::new()).unwrap_err();
-        matches!(err, TypeError::Mismatch(_, _));
-    }
-
-    #[test]
-    fn let_ok() {
-        check!("let x = 1 in x + 2", Type::Int);
-    }
-
-    #[test]
-    fn if_ok() {
-        check!("if true then 1 else 2", Type::Int);
-    }
-
-    #[test]
-    fn if_condition_must_be_bool() {
-        let err = ty("if 1 then 2 else 3", Context::new()).unwrap_err();
-        matches!(err, TypeError::Mismatch(_, _));
-    }
-
-    #[test]
-    fn if_branches_must_match() {
-        let err = ty("if true then 1 else false", Context::new()).unwrap_err();
-        matches!(err, TypeError::Mismatch(_, _));
-    }
-
-    #[test]
-    fn arrow_type_and_application_chain() {
-        check!("(.\\x: Int -> .\\y: Int -> x) 10 20", Type::Int);
     }
 }

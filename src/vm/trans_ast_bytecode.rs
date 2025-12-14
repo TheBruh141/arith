@@ -22,8 +22,8 @@ impl Compiler {
             Expr::Bool(b) => self.emit(OpCode::PushBool(*b)),
 
             Expr::Binary(lhs, op, rhs) => {
-                self.compile(lhs);
-                self.compile(rhs);
+                self.compile(&lhs.node);
+                self.compile(&rhs.node);
                 match op {
                     BinaryOp::Add => self.emit(OpCode::Add),
                     BinaryOp::Sub => self.emit(OpCode::Sub),
@@ -41,21 +41,21 @@ impl Compiler {
 
             Expr::Let(name, val_expr, body_expr) => {
                 // lhs push
-                self.compile(val_expr);
+                self.compile(&val_expr.node);
                 self.emit(OpCode::Store(name.clone()));
 
                 // rhs push
-                self.compile(body_expr);
+                self.compile(&body_expr.node);
                 self.emit(OpCode::PopBinding(name.clone()));
             }
 
             Expr::If(cond, then_expr, else_expr) => {
-                self.compile(cond);
+                self.compile(&cond.node);
 
                 let else_jump_idx = self.code.len();
                 self.emit(OpCode::JumpIfFalse(0)); // Placeholder
 
-                self.compile(then_expr);
+                self.compile(&then_expr.node);
 
                 let end_jump_idx = self.code.len();
                 self.emit(OpCode::Jump(0)); // Placeholder
@@ -64,7 +64,7 @@ impl Compiler {
                 let else_start = self.code.len();
                 self.code[else_jump_idx] = OpCode::JumpIfFalse(else_start);
 
-                self.compile(else_expr);
+                self.compile(&else_expr.node);
 
                 // Patch Jump to point here (End)
                 let end_pos = self.code.len();
@@ -76,7 +76,7 @@ impl Compiler {
                 self.emit(OpCode::Jump(0)); // Placeholder
 
                 let fn_start = self.code.len();
-                self.compile(body);
+                self.compile(&body.node);
                 // When a function returns, the result is on the stack.
                 // We do NOT need to emit PopBinding here for the parameter,
                 // because the VM tears down the entire CallFrame (including all locals)
@@ -93,8 +93,8 @@ impl Compiler {
             }
 
             Expr::App(func, arg) => {
-                self.compile(func); // Pushes Closure
-                self.compile(arg); // Pushes Argument
+                self.compile(&func.node); // Pushes Closure
+                self.compile(&arg.node); // Pushes Argument
                 self.emit(OpCode::Call);
             }
         }

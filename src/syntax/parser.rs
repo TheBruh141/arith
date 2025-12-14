@@ -1,12 +1,16 @@
-use crate::syntax::ast::{BinaryOp, Expr, Type, TypeExpr};
+use crate::compiler_errors::CompileErr;
+use crate::syntax::ast::{BinaryOp, Expr, Spanned, Type, TypeExpr};
 use crate::syntax::lexer::Token;
 use chumsky::prelude::*;
-use logos::Logos;
 
-pub fn parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
+pub fn parser() -> impl Parser<Token, Spanned<Expr>, Error = Simple<Token>> {
+    // --- Primitives ---
     let ident = select! { Token::Ident(id) => id };
     let int_lit = select! { Token::Num(n) => n };
 
+    // --- Type Parsing (Unchanged logic, just organization) ---
+    // Note: TypeExpr and Type are not spanned in this example to keep it focused,
+    // but in a full compiler you would span these too.
     let type_expr = recursive(|type_expr| {
         let atom = int_lit
             .map(TypeExpr::Lit)
@@ -17,8 +21,6 @@ pub fn parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
             .clone()
             .then(just(Token::Mul).ignore_then(atom).repeated())
             .foldl(|lhs, rhs| TypeExpr::Binary(Box::new(lhs), BinaryOp::Mul, Box::new(rhs)));
-
-        
 
         product
             .clone()
@@ -42,7 +44,6 @@ pub fn parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
 
         let atom = base.or(type_def.delimited_by(just(Token::LParen), just(Token::RParen)));
 
-        // Arrow is Right Associative: Int -> (Int -> Int)
         atom.clone()
             .separated_by(just(Token::Arrow))
             .at_least(1)
@@ -53,23 +54,37 @@ pub fn parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
             })
     });
 
+    // --- Expression Parsing ---
     recursive(|expr| {
         let lit = int_lit
             .map(Expr::Int)
             .or(just(Token::True).to(Expr::Bool(true)))
             .or(just(Token::False).to(Expr::Bool(false)));
 
-        let atom = lit.or(ident.map(Expr::Var)).or(expr
-            .clone()
-            .delimited_by(just(Token::LParen), just(Token::RParen)));
+        // 1. Atoms: Wrap result in Spanned::new using map_with_span
+        let atom = lit
+            .or(ident.map(Expr::Var))
+            .map_with_span(Spanned::new) // <--- Capture Span of literals/vars
+            .or(expr
+                .clone()
+                .delimited_by(just(Token::LParen), just(Token::RParen)));
 
-        // Function Application: f x y
+        // 2. Application: Merge spans of Function and Argument
         let app = atom
             .clone()
             .then(atom.clone().repeated())
-            .foldl(|func, arg| Expr::App(Box::new(func), Box::new(arg)));
+            .foldl(|func, arg| {
+                let span = func.span.start..arg.span.end; // Merge spans
+                Spanned::new(Expr::App(Box::new(func), Box::new(arg)), span)
+            });
 
-        // Math: Product (* /)
+        // Helper to construct binary ops with spans
+        let make_binary = |lhs: Spanned<Expr>, op, rhs: Spanned<Expr>| {
+            let span = lhs.span.start..rhs.span.end;
+            Spanned::new(Expr::Binary(Box::new(lhs), op, Box::new(rhs)), span)
+        };
+
+        // 3. Math: Product (* /)
         let product = app
             .clone()
             .then(
@@ -79,9 +94,9 @@ pub fn parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
                     .then(app.clone())
                     .repeated(),
             )
-            .foldl(|lhs, (op, rhs)| Expr::Binary(Box::new(lhs), op, Box::new(rhs)));
+            .foldl(move |lhs, (op, rhs)| make_binary(lhs, op, rhs));
 
-        // Math: Sum (+ -)
+        // 4. Math: Sum (+ -)
         let sum = product
             .clone()
             .then(
@@ -91,8 +106,9 @@ pub fn parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
                     .then(product.clone())
                     .repeated(),
             )
-            .foldl(|lhs, (op, rhs)| Expr::Binary(Box::new(lhs), op, Box::new(rhs)));
+            .foldl(move |lhs, (op, rhs)| make_binary(lhs, op, rhs));
 
+        // 5. Comparisons
         let comparison = sum
             .clone()
             .then(
@@ -105,16 +121,20 @@ pub fn parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
                     .then(sum.clone())
                     .repeated(),
             )
-            .foldl(|lhs, (op, rhs)| Expr::Binary(Box::new(lhs), op, Box::new(rhs)));
+            .foldl(move |lhs, (op, rhs)| make_binary(lhs, op, rhs));
 
-        // Structures
+        // 6. Structures (Control Flow)
+        // These use .map_with_span on the entire parser combinator logic
+
         let lambda = just(Token::Lambda)
             .ignore_then(ident)
             .then_ignore(just(Token::Colon))
             .then(type_parser.clone())
             .then_ignore(just(Token::Arrow))
             .then(expr.clone())
-            .map(|((var, ty), body)| Expr::Abs(var, ty, Box::new(body)));
+            .map_with_span(|((var, ty), body), span| {
+                Spanned::new(Expr::Abs(var, ty, Box::new(body)), span)
+            });
 
         let let_expr = just(Token::Let)
             .ignore_then(ident)
@@ -122,7 +142,9 @@ pub fn parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
             .then(expr.clone())
             .then_ignore(just(Token::In))
             .then(expr.clone())
-            .map(|((var, e1), e2)| Expr::Let(var, Box::new(e1), Box::new(e2)));
+            .map_with_span(|((var, e1), e2), span| {
+                Spanned::new(Expr::Let(var, Box::new(e1), Box::new(e2)), span)
+            });
 
         let if_expr = just(Token::If)
             .ignore_then(expr.clone())
@@ -130,31 +152,51 @@ pub fn parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
             .then(expr.clone())
             .then_ignore(just(Token::Else))
             .then(expr.clone())
-            .map(|((cond, then_e), else_e)| {
-                Expr::If(Box::new(cond), Box::new(then_e), Box::new(else_e))
+            .map_with_span(|((cond, then_e), else_e), span| {
+                Spanned::new(Expr::If(Box::new(cond), Box::new(then_e), Box::new(else_e)), span)
             });
 
         lambda.or(let_expr).or(if_expr).or(comparison)
     })
 }
-pub fn parse(input: &str) -> Result<Expr, Vec<Simple<Token>>> {
-    // 1. Lex the input WITH spans
-    // .spanned() turns the iterator into items of (Result<Token, _>, Range<usize>)
+
+// 7. Entry Point
+pub fn parse(input: &str) -> Result<Spanned<Expr>, Vec<CompileErr>> {
+    use logos::Logos;
+
     let tokens: Vec<(Token, std::ops::Range<usize>)> = Token::lexer(input)
         .spanned()
         .filter_map(|(token, span)| match token {
             Ok(t) => Some((t, span)),
-            Err(_) => None, // Skip invalid characters (or handle lexer errors here)
+            Err(_) => None,
         })
         .collect();
 
-    // Calculate end of file span for error reporting at EOF
     let eof = input.len()..input.len();
 
-    // 2. Parse the stream of (Token, Span) tuples
     parser()
         .then_ignore(end())
         .parse(chumsky::Stream::from_iter(eof, tokens.into_iter()))
+        .map_err(|errs| {
+            errs.into_iter()
+                .map(|e| match e.reason() {
+                    chumsky::error::SimpleReason::Unclosed { span, delimiter } => {
+                        CompileErr::UnclosedDelimiter {
+                            span: span.clone(),
+                            delimiter: delimiter.to_string(),
+                        }
+                    }
+                    chumsky::error::SimpleReason::Unexpected => CompileErr::UnexpectedToken {
+                        span: e.span(),
+                        expected: e.expected().map(|o| o.clone().map(|t| t.to_string())).collect(),
+                        found: e.found().map(|t| t.to_string()),
+                    },
+                    chumsky::error::SimpleReason::Custom(msg) => {
+                        CompileErr::Custom(msg.to_string())
+                    }
+                })
+                .collect()
+        })
 }
 
 #[cfg(test)]
@@ -280,5 +322,43 @@ mod tests {
             parse("let x = in x").is_err(),
             "expected parse error for malformed let"
         );
+    }
+
+    #[test]
+    fn test_spans_are_captured() {
+        // "1 + 2"
+        // 1 is at 0..1
+        // + is at 2..3
+        // 2 is at 4..5
+        // The whole binary expression is 0..5
+        let src = "1 + 2";
+        let result = parse(src).unwrap();
+
+        assert_eq!(result.span, 0..5);
+
+        if let Expr::Binary(lhs, _, rhs) = result.node {
+            assert_eq!(lhs.span, 0..1); // "1"
+            assert_eq!(rhs.span, 4..5); // "2"
+        } else {
+            panic!("Expected Binary Expr");
+        }
+    }
+
+    #[test]
+    fn test_nested_spans() {
+        // "let x = 10 in x"
+        // Whole let: 0..15
+        let src = "let x = 10 in x";
+        let result = parse(src).unwrap();
+
+        assert_eq!(result.span, 0..15);
+
+        if let Expr::Let(var, val, body) = result.node {
+            assert_eq!(var, "x");
+            assert_eq!(val.span, 8..10);  // "10"
+            assert_eq!(body.span, 14..15); // "x"
+        } else {
+            panic!("Expected Let Expr");
+        }
     }
 }

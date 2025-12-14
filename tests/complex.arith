@@ -15,6 +15,7 @@ let is_even = .\ n : Int ->
     (mod n 2) == 0
 in
 
+-- clamps the value between `min` and `max`
 let clamp = .\ val : Int -> .\ min : Int -> .\ max : Int ->
     if val < min then min
     else if val > max then max

@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use arith::syntax::parser; // Import your parser function
+    // Import your parser function
     use arith::syntax::parser::{parse, parser};
     use arith::vm::trans_ast_bytecode::Compiler;
     use arith::vm::vm::{VM, Value};
@@ -15,7 +15,7 @@ mod tests {
             .expect("Parsing failed");
 
         let mut compiler = Compiler::new();
-        compiler.compile(&ast);
+        compiler.compile(&ast.node);
 
         // 3. Run
         let mut vm = VM::new(compiler.code);

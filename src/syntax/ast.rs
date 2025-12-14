@@ -1,4 +1,19 @@
 use std::fmt::{Display, Formatter};
+use std::ops::Range;
+
+pub type Span = Range<usize>;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Spanned<T> {
+    pub node: T,
+    pub span: Span,
+}
+
+impl <T> Spanned<T> {
+    pub fn new(node: T, span: Span) -> Self {
+        Spanned { node, span }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BinaryOp {
@@ -35,12 +50,13 @@ pub enum Expr {
     Var(String),
     Int(i64),
     Bool(bool),
-    Abs(String, Type, Box<Expr>),
-    App(Box<Expr>, Box<Expr>),
-    Binary(Box<Expr>, BinaryOp, Box<Expr>),
-    Let(String, Box<Expr>, Box<Expr>),
-    If(Box<Expr>, Box<Expr>, Box<Expr>),
+    Abs(String, Type, Box<Spanned<Expr>>),
+    App(Box<Spanned<Expr>>, Box<Spanned<Expr>>),
+    Binary(Box<Spanned<Expr>>, BinaryOp, Box<Spanned<Expr>>),
+    Let(String, Box<Spanned<Expr>>, Box<Spanned<Expr>>),
+    If(Box<Spanned<Expr>>, Box<Spanned<Expr>>, Box<Spanned<Expr>>),
 }
+
 
 const RESET: &str = "\x1b[0m";
 const RED: &str = "\x1b[31m";
@@ -81,7 +97,7 @@ impl Expr {
                     BLUE,
                     ty.debug_type(),
                     RESET,
-                    body.debug_ast(indent + 1)
+                    body.node.debug_ast(indent + 1)
                 )
             }
             Expr::App(func, arg) => {
@@ -89,9 +105,9 @@ impl Expr {
                     "{pad}{}App{}\n{}{}\n{}{}",
                     RED,
                     RESET,
-                    func.debug_ast(indent + 1),
+                    func.node.debug_ast(indent + 1),
                     "",
-                    arg.debug_ast(indent + 1),
+                    arg.node.debug_ast(indent + 1),
                     ""
                 )
             }
@@ -101,9 +117,9 @@ impl Expr {
                     CYAN,
                     RESET,
                     op,
-                    lhs.debug_ast(indent + 1),
+                    lhs.node.debug_ast(indent + 1),
                     "",
-                    rhs.debug_ast(indent + 1),
+                    rhs.node.debug_ast(indent + 1),
                     ""
                 )
             }
@@ -113,9 +129,9 @@ impl Expr {
                     BLUE,
                     RESET,
                     name,
-                    expr.debug_ast(indent + 1),
+                    expr.node.debug_ast(indent + 1),
                     "",
-                    body.debug_ast(indent + 1),
+                    body.node.debug_ast(indent + 1),
                     ""
                 )
             }
@@ -124,11 +140,11 @@ impl Expr {
                     "{pad}{}If{}\n{}{}\n{}{}\n{}{}",
                     RED,
                     RESET,
-                    cond.debug_ast(indent + 1),
+                    cond.node.debug_ast(indent + 1),
                     "",
-                    then_br.debug_ast(indent + 1),
+                    then_br.node.debug_ast(indent + 1),
                     "",
-                    else_br.debug_ast(indent + 1),
+                    else_br.node.debug_ast(indent + 1),
                     ""
                 )
             }

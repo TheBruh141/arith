@@ -1,19 +1,10 @@
 use crate::syntax::ast::{BinaryOp, Type, TypeExpr};
 use log::debug;
 
-#[derive(Debug)]
-pub enum TypeError {
-    Mismatch(Type, Type),
-    DimensionMismatch(TypeExpr, TypeExpr),
-    UnknownVar(String),
-}
-
-pub type Result<T> = std::result::Result<T, TypeError>;
-
 /// Unify two types.
 /// For now, this performs strict structural unification.
 /// In the future, it should handle type variables (for inference) and arithmetic reduction.
-pub fn unify(t1: &Type, t2: &Type) -> Result<()> {
+pub fn unify(t1: &Type, t2: &Type) -> Result<(), (Type, Type)> {
     match (t1, t2) {
         (Type::Int, Type::Int) => Ok(()),
         (Type::Bool, Type::Bool) => Ok(()),
@@ -23,14 +14,14 @@ pub fn unify(t1: &Type, t2: &Type) -> Result<()> {
         }
         (Type::Vector(v1, dim1), Type::Vector(v2, dim2)) => {
             unify(v1, v2)?;
-            unify_dim(dim1, dim2)
+            unify_dim(dim1, dim2).map_err(|_| (t1.clone(), t2.clone()))
         }
-        (t1, t2) => Err(TypeError::Mismatch(t1.clone(), t2.clone())),
+        (t1, t2) => Err((t1.clone(), t2.clone())),
     }
 }
 
 /// Unify two type-level expressions (dimensions).
-fn unify_dim(d1: &TypeExpr, d2: &TypeExpr) -> Result<()> {
+fn unify_dim(d1: &TypeExpr, d2: &TypeExpr) -> Result<(), (TypeExpr, TypeExpr)> {
     // Basic solver: Structural equality + simple simplification?
     // For now: Strict equality checking.
     // TODO: Implement actual arithmetic solver (e.g. normalize to polynomial form)
@@ -44,7 +35,7 @@ fn unify_dim(d1: &TypeExpr, d2: &TypeExpr) -> Result<()> {
                 return Ok(());
             }
 
-        Err(TypeError::DimensionMismatch(d1.clone(), d2.clone()))
+        Err((d1.clone(), d2.clone()))
     }
 }
 /// Compile-Time Constant Evaluator

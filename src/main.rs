@@ -25,7 +25,7 @@ fn main() {
     for path in files {
         println!("Compiling {}...", path.display());
         match fs::read_to_string(&path) {
-            Ok(src) => execute(&src, comp_ops),
+            Ok(src) => execute(&src, path.to_str().unwrap_or("<unknown>"), comp_ops),
             Err(e) => eprintln!("Error: {}", e),
         }
     }
