@@ -54,6 +54,7 @@ pub enum Type {
     Arrow(Box<Type>, Box<Type>),
     Vector(Box<Type>, TypeExpr),
     Struct(String),
+    Enum(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -110,15 +111,43 @@ pub enum Expr {
     Block(Vec<Spanned<Expr>>),
 
     // Structs
-    // struct Name { field: Type, ... } in body
-    StructDecl(String, Vec<(String, Type)>, Box<Spanned<Expr>>),
-    // Name { field: expr, ... }
+    // Definition: struct Point { x: Int } in ...
+    StructDef {
+        name: String,
+        fields: Vec<(String, Type)>,
+        body: Box<Spanned<Expr>>,
+    },
+    // Initialization: Point { x: 10 }
     StructInit(String, Vec<(String, Spanned<Expr>)>),
-    // expr.field
+    // Access: p.x
     FieldAccess(Box<Spanned<Expr>>, String),
+
+    // --- Enums ---
+    EnumDef {
+        name: String,
+        variants: Vec<(String, Vec<Type>)>,
+        body: Box<Spanned<Expr>>,
+    },
+    EnumInit {
+        enum_name: String,
+        variant_name: String,
+        values: Vec<Spanned<Expr>>,
+    },
+    Match {
+        value: Box<Spanned<Expr>>,
+        arms: Vec<(Pattern, Spanned<Expr>)>,
+    },
 
     // Not a good time to see this...
     Error(String /*Reason / Error message */),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Pattern {
+    Var(String),                           // x
+    LitInt(String),                        // 10
+    EnumPat(String, String, Vec<Pattern>), // Shape::Circle(r)
+    Wildcard,                              // _
 }
 
 #[derive(Debug)]
@@ -152,178 +181,281 @@ impl Display for BinaryOp {
     }
 }
 impl Expr {
-    /// Pretty-print the AST with colors and indentation
-    pub fn debug_ast(&self, indent: usize) -> String {
-        let pad = "  ".repeat(indent);
+    pub fn debug_ast(&self) -> String {
+        self.debug_ast_inner("", true)
+    }
+
+    fn debug_ast_inner(&self, prefix: &str, last: bool) -> String {
+        let branch = if last { "└─" } else { "├─" };
+        let next_prefix = if last {
+            format!("{prefix}   ")
+        } else {
+            format!("{prefix}│  ")
+        };
+
+        let head = format!("{prefix}{branch}");
+
         match self {
-            Expr::Unary(op, expr) => match op {
-                UnaryOp::Neg => format!(
-                    "{pad}{}-{} {}({})",
+            Expr::Var(name) => format!("{head}{}Var{}({name})", CYAN, RESET),
+            Expr::Int(n) => format!("{head}{}Int{}({n})", GREEN, RESET),
+            Expr::Bool(b) => format!("{head}{}Bool{}({b})", YELLOW, RESET),
+
+            Expr::Unary(op, expr) => {
+                let op_str = match op {
+                    UnaryOp::Neg => "-",
+                    UnaryOp::Not => "!",
+                };
+                format!(
+                    "{head}{}Unary{}({})\n{}",
                     RED,
                     RESET,
-                    expr.node.debug_ast(0).trim(),
-                    ""
-                ),
-                UnaryOp::Not => format!(
-                    "{pad}{}!{} {}({})",
-                    RED,
-                    RESET,
-                    expr.node.debug_ast(0).trim(),
-                    ""
-                ),
-            },
-            Expr::Var(name) => format!("{pad}{}Var{}({})", CYAN, RESET, name),
-            Expr::Int(n) => format!("{pad}{}Int{}({})", GREEN, RESET, n),
-            Expr::Bool(b) => format!("{pad}{}Bool{}({})", YELLOW, RESET, b),
-            Expr::LitU8(n) => format!("{pad}{}U8{}({})", GREEN, RESET, n),
-            Expr::LitU16(n) => format!("{pad}{}U16{}({})", GREEN, RESET, n),
-            Expr::LitU32(n) => format!("{pad}{}U32{}({})", GREEN, RESET, n),
-            Expr::LitU64(n) => format!("{pad}{}U64{}({})", GREEN, RESET, n),
-            Expr::LitUsize(n) => format!("{pad}{}Usize{}({})", GREEN, RESET, n),
-            Expr::LitI8(n) => format!("{pad}{}I8{}({})", GREEN, RESET, n),
-            Expr::LitI16(n) => format!("{pad}{}I16{}({})", GREEN, RESET, n),
-            Expr::LitI32(n) => format!("{pad}{}I32{}({})", GREEN, RESET, n),
-            Expr::LitI64(n) => format!("{pad}{}I64{}({})", GREEN, RESET, n),
-            Expr::LitIsize(n) => format!("{pad}{}Isize{}({})", GREEN, RESET, n),
-            Expr::LitF16(n) => format!("{pad}{}F16{}({})", GREEN, RESET, n),
-            Expr::LitF32(n) => format!("{pad}{}F32{}({})", GREEN, RESET, n),
-            Expr::LitF64(n) => format!("{pad}{}F64{}({})", GREEN, RESET, n),
-            Expr::Assert(e) => format!(
-                "{pad}{}Assert{}(\n{})",
-                RED,
-                RESET,
-                e.node.debug_ast(indent + 1)
-            ),
-            Expr::Block(exprs) => {
-                let lines: Vec<String> =
-                    exprs.iter().map(|e| e.node.debug_ast(indent + 1)).collect();
-                format!("{pad}{}Block{}(\n{})", MAGENTA, RESET, lines.join("\n"))
+                    op_str,
+                    expr.node.debug_ast_inner(&next_prefix, true)
+                )
             }
 
+            Expr::Binary(lhs, op, rhs) => {
+                format!(
+                    "{head}{}Binary{}({op})\n{}\n{}",
+                    CYAN,
+                    RESET,
+                    lhs.node.debug_ast_inner(&next_prefix, false),
+                    rhs.node.debug_ast_inner(&next_prefix, true),
+                )
+            }
+
+            Expr::App(func, arg) => {
+                format!(
+                    "{head}{}App{}\n{}\n{}",
+                    RED,
+                    RESET,
+                    func.node.debug_ast_inner(&next_prefix, false),
+                    arg.node.debug_ast_inner(&next_prefix, true),
+                )
+            }
+
+            Expr::Block(exprs) => {
+                let mut out = format!("{head}{}Block{}", MAGENTA, RESET);
+                for (i, e) in exprs.iter().enumerate() {
+                    out.push('\n');
+                    out.push_str(&e.node.debug_ast_inner(&next_prefix, i == exprs.len() - 1));
+                }
+                out
+            }
+
+            Expr::Let(name, expr, body) => {
+                format!(
+                    "{head}{}Let{}({name})\n{}\n{}",
+                    BLUE,
+                    RESET,
+                    expr.node.debug_ast_inner(&next_prefix, false),
+                    body.node.debug_ast_inner(&next_prefix, true),
+                )
+            }
+
+            Expr::LetRec(name, expr, body) => {
+                format!(
+                    "{head}{}LetRec{}({name})\n{}\n{}",
+                    BLUE,
+                    RESET,
+                    expr.node.debug_ast_inner(&next_prefix, false),
+                    body.node.debug_ast_inner(&next_prefix, true),
+                )
+            }
+
+            Expr::If(cond, then_br, else_br) => {
+                format!(
+                    "{head}{}If{}\n{}\n{}\n{}",
+                    RED,
+                    RESET,
+                    cond.node.debug_ast_inner(&next_prefix, false),
+                    then_br.node.debug_ast_inner(&next_prefix, false),
+                    else_br.node.debug_ast_inner(&next_prefix, true),
+                )
+            }
+
+            Expr::Assert(e) => format!(
+                "{head}{}Assert{}\n{}",
+                RED,
+                RESET,
+                e.node.debug_ast_inner(&next_prefix, true)
+            ),
+
+            Expr::FieldAccess(base, field) => {
+                format!(
+                    "{head}{}FieldAccess{}({field})\n{}",
+                    CYAN,
+                    RESET,
+                    base.node.debug_ast_inner(&next_prefix, true)
+                )
+            }
+
+            Expr::StructInit(name, fields) => {
+                let mut out = format!("{head}{}StructInit{}({name})", MAGENTA, RESET);
+                for (i, (f, e)) in fields.iter().enumerate() {
+                    out.push('\n');
+                    out.push_str(&format!(
+                        "{next_prefix}{} {}{}
+{} {}",
+                        if i + 1 == fields.len() {
+                            "└─"
+                        } else {
+                            "├─"
+                        },
+                        BLUE,
+                        f,
+                        RESET,
+                        e.node.debug_ast_inner(&format!("{next_prefix}│  "), true)
+                    ));
+                }
+                out
+            }
+
+            Expr::StructDef { name, fields, body } => {
+                let mut out = format!("{head}{}StructDef{}({name})", MAGENTA, RESET);
+                for (i, (f, ty)) in fields.iter().enumerate() {
+                    out.push('\n');
+                    out.push_str(&format!(
+                        "{next_prefix}{} {}{}: {} {}",
+                        if i + 1 == fields.len() {
+                            "└─"
+                        } else {
+                            "├─"
+                        },
+                        BLUE,
+                        f,
+                        RESET,
+                        ty.debug_type()
+                    ));
+                }
+                out.push('\n');
+                out.push_str(&body.node.debug_ast_inner(&next_prefix, true));
+                out
+            }
+
+            Expr::EnumDef {
+                name,
+                variants,
+                body,
+            } => {
+                let mut out = format!("{head}{}EnumDef{}({name})", MAGENTA, RESET);
+                for (i, (v, args)) in variants.iter().enumerate() {
+                    out.push('\n');
+                    out.push_str(&format!(
+                        "{next_prefix}{} {}{}({}) {}",
+                        if i + 1 == variants.len() {
+                            "└─"
+                        } else {
+                            "├─"
+                        },
+                        BLUE,
+                        v,
+                        RESET,
+                        args.iter()
+                            .map(|t| t.debug_type())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ));
+                }
+                out.push('\n');
+                out.push_str(&body.node.debug_ast_inner(&next_prefix, true));
+                out
+            }
+
+            Expr::EnumInit {
+                enum_name,
+                variant_name,
+                values,
+            } => {
+                let mut out = format!(
+                    "{head}{}EnumInit{}({enum_name}::{variant_name})",
+                    MAGENTA, RESET
+                );
+                for (i, v) in values.iter().enumerate() {
+                    out.push('\n');
+                    out.push_str(&v.node.debug_ast_inner(&next_prefix, i + 1 == values.len()));
+                }
+                out
+            }
+
+            Expr::Match { value, arms } => {
+                let mut out = format!("{head}{}Match{}", RED, RESET);
+                out.push('\n');
+                out.push_str(&value.node.debug_ast_inner(&next_prefix, false));
+                for (i, (pat, expr)) in arms.iter().enumerate() {
+                    out.push('\n');
+                    out.push_str(&format!(
+                        "{next_prefix}{} {}Arm{}({pat:?})",
+                        if i + 1 == arms.len() {
+                            "└─"
+                        } else {
+                            "├─"
+                        },
+                        CYAN,
+                        RESET
+                    ));
+                    out.push('\n');
+                    out.push_str(
+                        &expr
+                            .node
+                            .debug_ast_inner(&format!("{next_prefix}│  "), true),
+                    );
+                }
+                out
+            }
+
+            Expr::Error(msg) => format!("{head}{}Error{}({msg})", RED, RESET),
+            Expr::LitU8(n) => {
+                format!("{head}{}LitU8{}({n})", GREEN, RESET)
+            }
+            Expr::LitU16(n) => {
+                format!("{head}{}LitU16{}({n})", GREEN, RESET)
+            }
+            Expr::LitU32(n) => {
+                format!("{head}{}LitU32{}({n})", GREEN, RESET)
+            }
+            Expr::LitU64(n) => {
+                format!("{head}{}LitU64{}({n})", GREEN, RESET)
+            }
+            Expr::LitUsize(n) => {
+                format!("{head}{}LitUsize{}({n})", GREEN, RESET)
+            }
+            Expr::LitI8(n) => {
+                format!("{head}{}LitI8{}({n})", GREEN, RESET)
+            }
+            Expr::LitI16(n) => {
+                format!("{head}{}LitI16{}({n})", GREEN, RESET)
+            }
+            Expr::LitI32(n) => {
+                format!("{head}{}LitI32{}({n})", GREEN, RESET)
+            }
+            Expr::LitI64(n) => {
+                format!("{head}{}LitI64{}({n})", GREEN, RESET)
+            }
+            Expr::LitIsize(n) => {
+                format!("{head}{}LitIsize{}({n})", GREEN, RESET)
+            }
+            Expr::LitF16(n) => {
+                format!("{head}{}LitF16{}({n})", GREEN, RESET)
+            }
+            Expr::LitF32(n) => {
+                format!("{head}{}LitF32{}({n})", GREEN, RESET)
+            }
+            Expr::LitF64(n) => {
+                format!("{head}{}LitF64{}({n})", GREEN, RESET)
+            }
             Expr::Abs(param, ty, body) => {
                 format!(
-                    "{pad}{}Abs{}({param}: {}{})\n{}{}",
+                    "{head}{}Abs{}({}{}:{}{})\n{}",
                     MAGENTA,
                     RESET,
                     BLUE,
+                    param,
                     ty.debug_type(),
                     RESET,
-                    body.node.debug_ast(indent + 1)
+                    body.node.debug_ast_inner(&next_prefix, true),
                 )
             }
-            Expr::App(func, arg) => {
-                format!(
-                    "{pad}{}App{}\n{}{}\n{}{}",
-                    RED,
-                    RESET,
-                    func.node.debug_ast(indent + 1),
-                    "",
-                    arg.node.debug_ast(indent + 1),
-                    ""
-                )
-            }
-            Expr::Binary(lhs, op, rhs) => {
-                format!(
-                    "{pad}{}Binary{}({})\n{}{}\n{}{}",
-                    CYAN,
-                    RESET,
-                    op,
-                    lhs.node.debug_ast(indent + 1),
-                    "",
-                    rhs.node.debug_ast(indent + 1),
-                    ""
-                )
-            }
-            Expr::Let(name, expr, body) => {
-                format!(
-                    "{pad}{}Let{}({})\n{}{}\n{}{}",
-                    BLUE,
-                    RESET,
-                    name,
-                    expr.node.debug_ast(indent + 1),
-                    "",
-                    body.node.debug_ast(indent + 1),
-                    ""
-                )
-            }
-            Expr::LetRec(name, expr, body) => {
-                format!(
-                    "{pad}{}LetRec{}({})\n{}{}\n{}{}",
-                    BLUE,
-                    RESET,
-                    name,
-                    expr.node.debug_ast(indent + 1),
-                    "",
-                    body.node.debug_ast(indent + 1),
-                    ""
-                )
-            }
-            Expr::If(cond, then_br, else_br) => {
-                format!(
-                    "{pad}{}If{}\n{}{}\n{}{}\n{}{}",
-                    RED,
-                    RESET,
-                    cond.node.debug_ast(indent + 1),
-                    "",
-                    then_br.node.debug_ast(indent + 1),
-                    "",
-                    else_br.node.debug_ast(indent + 1),
-                    ""
-                )
-            }
-            Expr::StructDecl(name, fields, body) => {
-                let fields_str = fields
-                    .iter()
-                    .map(|(n, t)| format!("{}: {}", n, t.debug_type()))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                format!(
-                    "{pad}{}StructDecl{}({} {{ {} }})\n{}{}",
-                    BLUE,
-                    RESET,
-                    name,
-                    fields_str,
-                    "",
-                    body.node.debug_ast(indent + 1)
-                )
-            }
-            Expr::StructInit(name, fields) => {
-                let fields_str = fields
-                    .iter()
-                    .map(|(n, e)| format!("{}: {}", n, e.node.debug_ast(0).trim()))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                format!(
-                    "{pad}{}StructInit{}({} {{ {} }})",
-                    BLUE, RESET, name, fields_str
-                )
-            }
-            Expr::FieldAccess(expr, field) => {
-                format!(
-                    "{pad}{}FieldAccess{}({}.{})",
-                    BLUE,
-                    RESET,
-                    expr.node.debug_ast(0).trim(),
-                    field
-                )
-            }
-            Expr::Unary(op, expr) => match op {
-                UnaryOp::Neg => format!(
-                    "{pad}{}-{} {}({})",
-                    RED,
-                    RESET,
-                    expr.node.debug_ast(0).trim(),
-                    ""
-                ),
-                UnaryOp::Not => format!(
-                    "{pad}{}!{} {}({})",
-                    RED,
-                    RESET,
-                    expr.node.debug_ast(0).trim(),
-                    ""
-                ),
-            },
-            Expr::Error(msg) => format!("{pad}Error{RED} message{msg}"),
         }
     }
 }
@@ -362,7 +494,8 @@ impl Type {
                 RESET,
                 ""
             ),
-            Type::Struct(name) => format!("{}{}{}", CYAN, name, RESET),
+            Type::Struct(name) => format!("{}Struct \"{}\"{}", CYAN, name, RESET),
+            Type::Enum(name) => format!("{}Enum \"{}\"{}", CYAN, name, RESET),
         }
     }
 }

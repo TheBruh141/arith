@@ -79,6 +79,25 @@ pub enum CompileErr {
         span: Span, // Make Custom errors span-aware too
         message: String,
     },
+    UnknownVariant {
+        span: Span,
+        enum_name: String,
+        variant_name: String,
+    },
+    ArityMismatch {
+        span: Span,
+        expected: usize,
+        found: usize,
+    },
+    NotAnEnum {
+        span: Span,
+        found: Type,
+    },
+    PatternMismatch {
+        span: Span,
+        expected: Type,
+        found: String, // Description of what we found (e.g., "Integer Literal")
+    },
 }
 
 pub type CompileResult<T> = Result<T, CompileErr>;

@@ -208,7 +208,11 @@ impl Compiler {
                     self.emit(OpCode::PushInt(num_bigint::BigInt::from(0)));
                 }
             }
-            Expr::StructDecl(_, _, body) => {
+            Expr::StructDef {
+                name: _,
+                fields: _,
+                body,
+            } => {
                 // Struct declaration is purely checking/metadata.
                 // At runtime, we just execute the body.
                 self.compile(&body.node);

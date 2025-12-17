@@ -1,4 +1,4 @@
-use crate::checker::check::{Context, check_expr};
+use crate::checker::check::{TypeContext, ValueContext, check_expr};
 use crate::config::CompilerOptions;
 use crate::syntax::parser::parse;
 use crate::vm::core::VM;
@@ -22,7 +22,7 @@ pub fn execute(source: &str, path: &str, compiler_options: &CompilerOptions) {
         Err(errs) => {
             let res: String = match &errs.ast {
                 None => "unrecoverable AST".into(),
-                Some(e) => e.node.debug_ast(compiler_options.print_ast_indent_size),
+                Some(e) => e.node.debug_ast(),
             };
 
             if compiler_options.print_ast {
@@ -34,13 +34,11 @@ pub fn execute(source: &str, path: &str, compiler_options: &CompilerOptions) {
     };
 
     if compiler_options.print_ast {
-        println!(
-            "AST:\n {}",
-            ast.node.debug_ast(compiler_options.print_ast_indent_size)
-        );
+        println!("AST:\n {}", ast.node.debug_ast());
     }
-    let ctx = Context::new();
-    if let Err(err) = check_expr(&ctx, &ast) {
+    let tyc = TypeContext::new();
+    let valc = ValueContext::new();
+    if let Err(err) = check_expr(&tyc, &valc, &ast) {
         diagnostics::render_errors(source, path, vec![err]);
         return;
     }

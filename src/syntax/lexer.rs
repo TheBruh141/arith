@@ -24,8 +24,13 @@ pub enum Token {
     False,
     #[token("assert")]
     Assert,
+
     #[token("struct")]
     Struct,
+    #[token("enum")]
+    Enum,
+    #[token("match")]
+    Match,
 
     // Type Keywords
     #[token("Int")]
@@ -114,6 +119,9 @@ pub enum Token {
     #[token("<=")]
     Leq,
 
+    #[token("...")]
+    TripleDot,
+
     // Literals
     #[regex("[a-zA-Z_][a-zA-Z0-9_]*", |lex| lex.slice().to_string())]
     Ident(String),
@@ -169,6 +177,8 @@ pub enum Token {
     BlockComment,
     #[regex(r"--[^\n]*", logos::skip, allow_greedy = true)]
     LineComment,
+
+    Underscore,
 }
 
 impl fmt::Display for Token {

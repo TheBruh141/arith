@@ -198,7 +198,68 @@ pub fn render_errors(source: &str, path: &str, errs: Vec<CompileErr>) {
                     ))
                     .with_color(Color::Red),
             ),
+            CompileErr::UnknownVariant {
+                span,
+                enum_name,
+                variant_name,
+            } => Report::build(ReportKind::Error, (path_string.clone(), span.clone()))
+                .with_message("Unknown Enum Variant")
+                .with_label(
+                    Label::new((path_string.clone(), span))
+                        .with_message(format!(
+                            "Variant '{}' does not exist in enum '{}'",
+                            variant_name, enum_name
+                        ))
+                        .with_color(Color::Red),
+                ),
+
+            CompileErr::ArityMismatch {
+                span,
+                expected,
+                found,
+            } => Report::build(ReportKind::Error, (path_string.clone(), span.clone()))
+                .with_message("Arity Mismatch")
+                .with_label(
+                    Label::new((path_string.clone(), span))
+                        .with_message(format!(
+                            "Expected {} arguments, but found {}",
+                            expected, found
+                        ))
+                        .with_color(Color::Red),
+                ),
+
+            CompileErr::NotAnEnum { span, found } => Report::build(
+                ReportKind::Error,
+                (path_string.clone(), span.clone()),
+            )
+                .with_message("Not an Enum")
+                .with_label(
+                    Label::new((path_string.clone(), span))
+                        .with_message(format!(
+                            "Expected an enum value, but found '{}'",
+                            found.debug_type()
+                        ))
+                        .with_color(Color::Red),
+                ),
+
+            CompileErr::PatternMismatch {
+                span,
+                expected,
+                found,
+            } => Report::build(ReportKind::Error, (path_string.clone(), span.clone()))
+                .with_message("Pattern Mismatch")
+                .with_label(
+                    Label::new((path_string.clone(), span))
+                        .with_message(format!(
+                            "Pattern does not match expected type '{}': found {}",
+                            expected.debug_type(),
+                            found
+                        ))
+                        .with_color(Color::Red),
+                ),
+
         };
+
         report
             .finish()
             .print(sources(vec![(path_string.clone(), source)]))
