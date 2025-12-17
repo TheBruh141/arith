@@ -1,4 +1,5 @@
 use crate::compiler_errors::CompileErr;
+use crate::syntax::ast::PartialParse;
 use crate::syntax::ast::{BinaryOp, Expr, Spanned, Type, TypeExpr};
 use crate::syntax::lexer::Token;
 use chumsky::prelude::*;
@@ -7,7 +8,6 @@ pub fn parser() -> impl Parser<Token, Spanned<Expr>, Error = Simple<Token>> {
     // --- Primitives ---
     let ident = select! { Token::Ident(id) => id };
 
-    // Updated int_lit to handle BigInt stored as String and primitives
     let lit_expr = select! {
         Token::LitInt(s) => Expr::Int(s),
         Token::LitI8(n) => Expr::LitI8(n),
@@ -27,9 +27,6 @@ pub fn parser() -> impl Parser<Token, Spanned<Expr>, Error = Simple<Token>> {
         Token::False => Expr::Bool(false),
     };
 
-    // For type expressions, we only support LitInt (i64 in legacy check) or we need to update TypeExpr too.
-    // Legacy TypeExpr::Lit(i64) is inconsistent with new BigInt literals.
-    // Let's special case LitInt for TypeExpr to parse as i64.
     let type_int_lit = select! { Token::LitInt(s) => s.parse::<i64>().unwrap_or(0) };
 
     // --- Type Parsing ---
@@ -68,6 +65,23 @@ pub fn parser() -> impl Parser<Token, Spanned<Expr>, Error = Simple<Token>> {
             .or(just(Token::Tf16).to(Type::F16))
             .or(just(Token::Tf32).to(Type::F32))
             .or(just(Token::Tf64).to(Type::F64))
+            // Structs
+            .or(ident.try_map(|s, span| {
+                if s.chars().next().map_or(false, |c| c.is_uppercase()) {
+                    Ok(Type::Struct(s))
+                } else {
+                    Err(Simple::custom(span, "Struct type must be capitalized"))
+                }
+            }))
+            // Arrow types
+            .or(type_def
+                .clone()
+                .delimited_by(just(Token::LParen), just(Token::RParen))
+                .then(just(Token::Arrow).ignore_then(type_def.clone()).or_not())
+                .map(|(lhs, rhs)| match rhs {
+                    Some(rhs) => Type::Arrow(Box::new(lhs), Box::new(rhs)),
+                    None => lhs,
+                }))
             .or(just(Token::TVector)
                 .ignore_then(
                     type_def
@@ -92,73 +106,153 @@ pub fn parser() -> impl Parser<Token, Spanned<Expr>, Error = Simple<Token>> {
 
     // --- Expression Parsing ---
     recursive(|expr| {
-        // Use the unified literal parser
         let lit = lit_expr.clone();
 
-        // 1. Atoms: Wrap result in Spanned::new using map_with_span
-        let atom = lit
-            .or(ident.map(Expr::Var))
-            .map_with_span(Spanned::new) // <--- Capture Span of literals/vars
-            .or(expr
-                .clone()
-                .delimited_by(just(Token::LParen), just(Token::RParen)));
-
-        // 2. Application: Merge spans of Function and Argument
-        let app = atom
+        // BLOCK PARSER
+        let block = expr
             .clone()
-            .then(atom.clone().repeated())
-            .foldl(|func, arg| {
-                let span = func.span.start..arg.span.end; // Merge spans
-                Spanned::new(Expr::App(Box::new(func), Box::new(arg)), span)
+            .separated_by(just(Token::Semi))
+            .allow_trailing()
+            .delimited_by(just(Token::LBrace), just(Token::RBrace))
+            .map(|mut stmts: Vec<Spanned<Expr>>| {
+                if stmts.len() == 1 {
+                    stmts.remove(0).node
+                } else {
+                    Expr::Block(stmts)
+                }
             });
 
-        // Helper to construct binary ops with spans
-        let make_binary = |lhs: Spanned<Expr>, op, rhs: Spanned<Expr>| {
-            let span = lhs.span.start..rhs.span.end;
-            Spanned::new(Expr::Binary(Box::new(lhs), op, Box::new(rhs)), span)
-        };
+        // STRUCT INIT
+        let struct_init = ident
+            .then(
+                ident
+                    .then_ignore(just(Token::Colon))
+                    .then(expr.clone())
+                    .separated_by(just(Token::Comma))
+                    .delimited_by(just(Token::LBrace), just(Token::RBrace)),
+            )
+            .map(|(name, fields)| Expr::StructInit(name, fields));
 
-        // 3. Math: Product (* /)
-        let product = app
+        let atom_base = lit
+            .or(block)
+            .or(struct_init)
+            .or(ident.map(Expr::Var))
+            .or(expr
+                .clone()
+                .delimited_by(just(Token::LParen), just(Token::RParen))
+                .map(|e| e.node))
+            .map_with_span(Spanned::new);
+
+        // POSTFIX (App, Field)
+        enum PostfixOp {
+            Call(Spanned<Expr>),
+            Field(String),
+        }
+
+        let apply_or_access = atom_base
+            .clone()
+            .then(
+                atom_base
+                    .clone()
+                    .map(PostfixOp::Call)
+                    .or(just(Token::Dot).ignore_then(ident).map(PostfixOp::Field))
+                    .repeated(),
+            )
+            .foldl(|lhs, op| match op {
+                PostfixOp::Call(arg) => {
+                    let span = lhs.span.start..arg.span.end;
+                    Spanned::new(Expr::App(Box::new(lhs), Box::new(arg)), span)
+                }
+                PostfixOp::Field(field) => {
+                    let span = lhs.span.start..lhs.span.end + 1 + field.len();
+                    Spanned::new(Expr::FieldAccess(Box::new(lhs), field), span)
+                }
+            });
+
+        // UNARY
+        let unary = recursive(|unary| {
+            let op = just(Token::Minus)
+                .to(crate::syntax::ast::UnaryOp::Neg)
+                .or(just(Token::Bang).to(crate::syntax::ast::UnaryOp::Not));
+
+            op.then(unary)
+                .map_with_span(|(op, expr), span| {
+                    Spanned::new(Expr::Unary(op, Box::new(expr)), span)
+                })
+                .or(apply_or_access.clone())
+        });
+
+        // BINARY PRECEDENCE
+        let product = unary
             .clone()
             .then(
                 just(Token::Mul)
-                    .to(BinaryOp::Mul)
-                    .or(just(Token::Div).to(BinaryOp::Div))
-                    .then(app.clone())
+                    .or(just(Token::Div))
+                    .then(apply_or_access)
                     .repeated(),
             )
-            .foldl(move |lhs, (op, rhs)| make_binary(lhs, op, rhs));
+            .foldl(|lhs, (op, rhs)| {
+                let span = lhs.span.start..rhs.span.end;
+                let bin_op = match op {
+                    Token::Mul => BinaryOp::Mul,
+                    Token::Div => BinaryOp::Div,
+                    _ => unreachable!(),
+                };
+                Spanned::new(Expr::Binary(Box::new(lhs), bin_op, Box::new(rhs)), span)
+            });
 
-        // 4. Math: Sum (+ -)
         let sum = product
             .clone()
             .then(
                 just(Token::Plus)
-                    .to(BinaryOp::Add)
-                    .or(just(Token::Minus).to(BinaryOp::Sub))
-                    .then(product.clone())
+                    .or(just(Token::Minus))
+                    .then(product)
                     .repeated(),
             )
-            .foldl(move |lhs, (op, rhs)| make_binary(lhs, op, rhs));
+            .foldl(|lhs, (op, rhs)| {
+                let span = lhs.span.start..rhs.span.end;
+                let bin_op = match op {
+                    Token::Plus => BinaryOp::Add,
+                    Token::Minus => BinaryOp::Sub,
+                    _ => unreachable!(),
+                };
+                Spanned::new(Expr::Binary(Box::new(lhs), bin_op, Box::new(rhs)), span)
+            });
 
-        // 5. Comparisons
         let comparison = sum
             .clone()
             .then(
-                just(Token::EqEq)
-                    .to(BinaryOp::Equals)
-                    .or(just(Token::Geq).to(BinaryOp::GreaterThanEquals))
-                    .or(just(Token::Leq).to(BinaryOp::LessThanEquals))
-                    .or(just(Token::LAngle).to(BinaryOp::LessThan))
-                    .or(just(Token::RAngle).to(BinaryOp::GreaterThan))
-                    .then(sum.clone())
-                    .repeated(),
+                choice((
+                    just(Token::EqEq).to(BinaryOp::Equals),
+                    just(Token::NotEq).to(BinaryOp::NotEquals),
+                    just(Token::LAngle).to(BinaryOp::LessThan),
+                    just(Token::RAngle).to(BinaryOp::GreaterThan),
+                    just(Token::Leq).to(BinaryOp::LessThanEquals),
+                    just(Token::Geq).to(BinaryOp::GreaterThanEquals),
+                ))
+                .then(sum)
+                .repeated(),
             )
-            .foldl(move |lhs, (op, rhs)| make_binary(lhs, op, rhs));
+            .foldl(|lhs, (op, rhs)| {
+                let span = lhs.span.start..rhs.span.end;
+                Spanned::new(Expr::Binary(Box::new(lhs), op, Box::new(rhs)), span)
+            });
 
-        // 6. Structures (Control Flow)
-        // These use .map_with_span on the entire parser combinator logic
+        // CONTROL FLOW
+        let struct_decl = just(Token::Struct)
+            .ignore_then(ident)
+            .then(
+                ident
+                    .then_ignore(just(Token::Colon))
+                    .then(type_parser.clone())
+                    .separated_by(just(Token::Comma))
+                    .delimited_by(just(Token::LBrace), just(Token::RBrace)),
+            )
+            .then_ignore(just(Token::In))
+            .then(expr.clone())
+            .map_with_span(|((name, fields), body), span| {
+                Spanned::new(Expr::StructDecl(name, fields, Box::new(body)), span)
+            });
 
         let lambda = just(Token::Lambda)
             .ignore_then(ident)
@@ -171,7 +265,7 @@ pub fn parser() -> impl Parser<Token, Spanned<Expr>, Error = Simple<Token>> {
             });
 
         let let_expr = just(Token::Let)
-            .ignore_then(just(Token::Rec).or_not()) // Optional 'rec'
+            .ignore_then(just(Token::Rec).or_not())
             .then(ident)
             .then_ignore(just(Token::Eq))
             .then(expr.clone())
@@ -202,16 +296,33 @@ pub fn parser() -> impl Parser<Token, Spanned<Expr>, Error = Simple<Token>> {
             .ignore_then(expr.clone())
             .map_with_span(|e, span| Spanned::new(Expr::Assert(Box::new(e)), span));
 
-        lambda
+        let raw_expr = lambda
             .or(let_expr)
             .or(if_expr)
             .or(assert_expr)
-            .or(comparison)
+            .or(struct_decl)
+            .or(comparison);
+
+        // --- LOOKAHEAD GUARD ---
+        // 1. none_of([...]) ensures the next token is NOT } or ).
+        // 2. rewind() resets the stream so we don't consume the allowed token.
+        // 3. then(...) executes the recovering parser.
+        // 4. or(raw_expr) is the fallback if we ARE at } or ).
+        //    raw_expr (unwrapped) will fail immediately without recovery,
+        //    allowing the block parser to see the closing delimiter.
+
+        none_of([Token::RBrace, Token::RParen])
+            .rewind()
+            .then(raw_expr.clone().recover_with(skip_until(
+                [Token::Semi, Token::In, Token::Then, Token::Else],
+                |span| Spanned::new(Expr::Error(format!("Syntax Error @ {:?}", span)), span),
+            )))
+            .map(|(_, e)| e)
+            .or(raw_expr)
     })
 }
 
-// 7. Entry Point
-pub fn parse(input: &str) -> Result<Spanned<Expr>, Vec<CompileErr>> {
+pub fn parse(input: &str) -> Result<Spanned<Expr>, PartialParse> {
     use logos::Logos;
 
     let tokens: Vec<(Token, std::ops::Range<usize>)> = Token::lexer(input)
@@ -223,11 +334,9 @@ pub fn parse(input: &str) -> Result<Spanned<Expr>, Vec<CompileErr>> {
         .collect();
 
     let eof = input.len()..input.len();
+    let stream = chumsky::Stream::from_iter(eof, tokens.into_iter());
 
-    let eof = input.len()..input.len();
-
-    // Support sequence of expressions separated by optional semicolons
-    parser()
+    let (output, errors) = parser()
         .separated_by(just(Token::Semi))
         .allow_trailing()
         .then_ignore(end())
@@ -238,33 +347,47 @@ pub fn parse(input: &str) -> Result<Spanned<Expr>, Vec<CompileErr>> {
                 Spanned::new(Expr::Block(exprs), span)
             }
         })
-        .parse(chumsky::Stream::from_iter(eof, tokens.into_iter()))
-        .map_err(|errs| {
-            errs.into_iter()
-                .map(|e| match e.reason() {
-                    chumsky::error::SimpleReason::Unclosed { span, delimiter } => {
-                        CompileErr::UnclosedDelimiter {
-                            span: span.clone(),
-                            delimiter: delimiter.to_string(),
-                        }
-                    }
-                    chumsky::error::SimpleReason::Unexpected => CompileErr::UnexpectedToken {
-                        span: e.span(),
-                        expected: e
-                            .expected()
-                            .map(|o| o.clone().map(|t| t.to_string()))
-                            .collect(),
-                        found: e.found().map(|t| t.to_string()),
-                    },
-                    chumsky::error::SimpleReason::Custom(msg) => CompileErr::Custom {
-                        span: e.span(),
-                        message: msg.to_string(),
-                    },
-                })
-                .collect()
-        })
-}
+        .parse_recovery(stream);
 
+    let compile_errors: Vec<CompileErr> = errors
+        .into_iter()
+        .map(|e| match e.reason() {
+            chumsky::error::SimpleReason::Unclosed { span, delimiter } => {
+                CompileErr::UnclosedDelimiter {
+                    span: span.clone(),
+                    delimiter: delimiter.to_string(),
+                }
+            }
+            chumsky::error::SimpleReason::Unexpected => CompileErr::UnexpectedToken {
+                span: e.span(),
+                expected: e
+                    .expected()
+                    .map(|o| o.clone().map(|t| t.to_string()))
+                    .collect(),
+                found: e.found().map(|t| t.to_string()),
+            },
+            chumsky::error::SimpleReason::Custom(msg) => CompileErr::Custom {
+                span: e.span(),
+                message: msg.to_string(),
+            },
+        })
+        .collect();
+
+    if compile_errors.is_empty() {
+        match output {
+            Some(ast) => Ok(ast),
+            None => Err(PartialParse {
+                ast: None,
+                errors: vec![],
+            }),
+        }
+    } else {
+        Err(PartialParse {
+            ast: output,
+            errors: compile_errors,
+        })
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -1,11 +1,12 @@
 use crate::checker::unify::unify;
 use crate::compiler_errors::{CompileErr, CompileResult};
-use crate::syntax::ast::{BinaryOp, Expr, Spanned, Type};
+use crate::syntax::ast::{BinaryOp, Expr, Spanned, Type, UnaryOp};
 use std::collections::HashMap;
 
 #[derive(Clone, Debug)]
 pub struct Context {
     vars: HashMap<String, Type>,
+    structs: HashMap<String, HashMap<String, Type>>,
 }
 
 impl Default for Context {
@@ -18,6 +19,7 @@ impl Context {
     pub fn new() -> Self {
         Self {
             vars: HashMap::new(),
+            structs: HashMap::new(),
         }
     }
 
@@ -25,8 +27,16 @@ impl Context {
         self.vars.insert(name, ty);
     }
 
+    pub fn insert_struct(&mut self, name: String, fields: HashMap<String, Type>) {
+        self.structs.insert(name, fields);
+    }
+
     pub fn get(&self, name: &str) -> Option<&Type> {
         self.vars.get(name)
+    }
+
+    pub fn get_struct(&self, name: &str) -> Option<&HashMap<String, Type>> {
+        self.structs.get(name)
     }
 }
 
@@ -127,6 +137,7 @@ pub fn check_expr(ctx: &Context, expr: &Spanned<Expr>) -> CompileResult<Type> {
                     }
                 }
                 BinaryOp::Equals
+                | BinaryOp::NotEquals
                 | BinaryOp::LessThan
                 | BinaryOp::GreaterThan
                 | BinaryOp::LessThanEquals
@@ -155,6 +166,42 @@ pub fn check_expr(ctx: &Context, expr: &Spanned<Expr>) -> CompileResult<Type> {
                             found_operand_type: l_ty,
                         }),
                     }
+                }
+            }
+        }
+
+        Expr::Unary(op, expr) => {
+            let ty = check_expr(ctx, expr)?;
+            match op {
+                UnaryOp::Neg => {
+                    match ty {
+                        Type::Int
+                        | Type::I8
+                        | Type::I16
+                        | Type::I32
+                        | Type::I64
+                        | Type::Isize
+                        | Type::F16
+                        | Type::F32
+                        | Type::F64 => Ok(ty),
+                        // Explicitly disallow unsigned negation? Or allow wrapping?
+                        // Rust allows it on wrapping types but standard negation is signed feature usually.
+                        // Let's stick to signed for now.
+                        _ => Err(CompileErr::Generic {
+                            span: expr.span.clone(),
+                            message: format!("Cannot negate type {:?}", ty),
+                        }),
+                    }
+                }
+                UnaryOp::Not => {
+                    unify(&ty, &Type::Bool).map_err(|(found, expected)| {
+                        CompileErr::TypeMismatch {
+                            span: expr.span.clone(),
+                            expected,
+                            found,
+                        }
+                    })?;
+                    Ok(Type::Bool)
                 }
             }
         }
@@ -222,12 +269,98 @@ pub fn check_expr(ctx: &Context, expr: &Spanned<Expr>) -> CompileResult<Type> {
                 expected: Type::Bool,
                 found: found_type,
             })?;
-            // verification successful
-            // Returns Unit/Bool? Since we don't have Unit, let's return Int(0) or Bool(true)
-            // Or add Type::Unit.
-            // For now, let's say it evaluates to the condition (Bool).
-            // For now, let's say it evaluates to the condition (Bool).
             Ok(Type::Bool)
+        }
+
+        Expr::StructDecl(name, fields, body) => {
+            let mut field_map = HashMap::new();
+            for (f_name, f_type) in fields {
+                field_map.insert(f_name.clone(), f_type.clone());
+            }
+
+            let mut new_ctx = ctx.clone();
+            new_ctx.insert_struct(name.clone(), field_map);
+
+            // Also allow the struct type to be used in variable bindings if needed?
+            // Currently Type::Struct(name) is valid, but we don't check for existence of struct type
+            // when just referring to it in type signatures (e.g. fn(p: Point)).
+            // We might want to validate that 'Point' exists in Context.
+
+            check_expr(&new_ctx, body)
+        }
+
+        Expr::StructInit(name, init_fields) => {
+            let struct_def = ctx
+                .get_struct(name)
+                .ok_or_else(|| CompileErr::UnknownType {
+                    span: expr.span.clone(),
+                    type_name: name.clone(),
+                })?;
+
+            // 1. Check all initialized fields exist and match type
+            for (f_name, f_expr) in init_fields {
+                let expected_ty =
+                    struct_def
+                        .get(f_name)
+                        .ok_or_else(|| CompileErr::UnknownField {
+                            span: f_expr.span.clone(),
+                            struct_name: name.clone(),
+                            field_name: f_name.clone(),
+                        })?;
+
+                let found_ty = check_expr(ctx, f_expr)?;
+                unify(&found_ty, expected_ty).map_err(|(found, expected)| {
+                    CompileErr::TypeMismatch {
+                        span: f_expr.span.clone(),
+                        expected,
+                        found,
+                    }
+                })?;
+            }
+
+            // 2. Check for missing fields
+            // (Optional optimization: iterate def instead)
+            for def_field in struct_def.keys() {
+                if !init_fields.iter().any(|(n, _)| n == def_field) {
+                    return Err(CompileErr::MissingField {
+                        span: expr.span.clone(),
+                        struct_name: name.clone(),
+                        field_name: def_field.clone(),
+                    });
+                }
+            }
+
+            Ok(Type::Struct(name.clone()))
+        }
+
+        Expr::FieldAccess(obj_expr, field_name) => {
+            let obj_type = check_expr(ctx, obj_expr)?;
+
+            match obj_type {
+                Type::Struct(struct_name) => {
+                    let struct_def =
+                        ctx.get_struct(&struct_name)
+                            .ok_or_else(|| CompileErr::UnknownType {
+                                span: obj_expr.span.clone(),
+                                type_name: struct_name.clone(),
+                            })?;
+
+                    let field_type =
+                        struct_def
+                            .get(field_name)
+                            .ok_or_else(|| CompileErr::UnknownField {
+                                span: expr.span.clone(),
+                                struct_name: struct_name.clone(),
+                                field_name: field_name.clone(),
+                            })?;
+
+                    Ok(field_type.clone())
+                }
+                _ => Err(CompileErr::NotAStruct {
+                    span: obj_expr.span.clone(),
+                    found: obj_type,
+                }),
+            }
         }
 
         Expr::Block(exprs) => {
@@ -236,6 +369,10 @@ pub fn check_expr(ctx: &Context, expr: &Spanned<Expr>) -> CompileResult<Type> {
                 ty = check_expr(ctx, e)?;
             }
             Ok(ty)
+        }
+        Expr::Error(_) => {
+            // I don't know the best way to handle this without exploding error propagation.
+            panic!("Error can't be checked, this is a parsing error. ");
         }
     }
 }

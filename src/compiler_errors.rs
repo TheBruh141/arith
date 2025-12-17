@@ -50,6 +50,30 @@ pub enum CompileErr {
         name: String,
     },
 
+    // Struct Errors
+    UnknownType {
+        span: Span,
+        type_name: String,
+    },
+    UnknownField {
+        span: Span,
+        struct_name: String,
+        field_name: String,
+    },
+    MissingField {
+        span: Span,
+        struct_name: String,
+        field_name: String,
+    },
+    Generic {
+        span: Span,
+        message: String,
+    },
+    NotAStruct {
+        span: Span,
+        found: Type,
+    },
+
     // General errors
     Custom {
         span: Span, // Make Custom errors span-aware too

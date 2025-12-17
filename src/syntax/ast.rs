@@ -1,3 +1,4 @@
+use crate::compiler_errors::CompileErr;
 use std::fmt::{Display, Formatter};
 use std::ops::Range;
 
@@ -28,6 +29,7 @@ pub enum BinaryOp {
     GreaterThan,       // >
     LessThanEquals,    // <=
     GreaterThanEquals, // =>
+    NotEquals,         // !=
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -51,6 +53,7 @@ pub enum Type {
 
     Arrow(Box<Type>, Box<Type>),
     Vector(Box<Type>, TypeExpr),
+    Struct(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -60,12 +63,16 @@ pub enum TypeExpr {
     Binary(Box<TypeExpr>, BinaryOp, Box<TypeExpr>),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UnaryOp {
+    Neg, // -
+    Not, // !
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
-    Var(String),
-
     // Literals
-    Int(String), // BigInt stored as string initially
+    Int(String), // BigInt
     Bool(bool),
 
     // Primitives
@@ -74,25 +81,50 @@ pub enum Expr {
     LitU32(u32),
     LitU64(u64),
     LitUsize(usize),
+
     LitI8(i8),
     LitI16(i16),
     LitI32(i32),
     LitI64(i64),
     LitIsize(isize),
-    LitF16(f32), // Half is tricky, store as f32 for AST? Or use half crate wrapper later.
-    // For AST, f32 is fine storage if we don't lose precision (we might).
-    // Actually, let's store f32/f64.
+
+    LitF16(f32), // Rust doesn't have f16 separate lit logic usually, stored as f32 in AST for now? Or keep string?
+    // Parser converts to float.
     LitF32(f32),
     LitF64(f64),
 
+    // Variables
+    Var(String),
+
+    // Operators
+    Unary(UnaryOp, Box<Spanned<Expr>>),
+    Binary(Box<Spanned<Expr>>, BinaryOp, Box<Spanned<Expr>>),
+
+    // Control Flow
     Abs(String, Type, Box<Spanned<Expr>>),
     App(Box<Spanned<Expr>>, Box<Spanned<Expr>>),
-    Binary(Box<Spanned<Expr>>, BinaryOp, Box<Spanned<Expr>>),
-    Let(String, Box<Spanned<Expr>>, Box<Spanned<Expr>>),
+    Let(String, Box<Spanned<Expr>>, Box<Spanned<Expr>>), // let x = e1 in e2
     LetRec(String, Box<Spanned<Expr>>, Box<Spanned<Expr>>),
     If(Box<Spanned<Expr>>, Box<Spanned<Expr>>, Box<Spanned<Expr>>),
     Assert(Box<Spanned<Expr>>),
     Block(Vec<Spanned<Expr>>),
+
+    // Structs
+    // struct Name { field: Type, ... } in body
+    StructDecl(String, Vec<(String, Type)>, Box<Spanned<Expr>>),
+    // Name { field: expr, ... }
+    StructInit(String, Vec<(String, Spanned<Expr>)>),
+    // expr.field
+    FieldAccess(Box<Spanned<Expr>>, String),
+
+    // Not a good time to see this...
+    Error(String /*Reason / Error message */),
+}
+
+#[derive(Debug)]
+pub struct PartialParse {
+    pub ast: Option<Spanned<Expr>>,
+    pub errors: Vec<CompileErr>,
 }
 
 const RESET: &str = "\x1b[0m";
@@ -115,6 +147,7 @@ impl Display for BinaryOp {
             BinaryOp::GreaterThan => write!(f, "BinaryOp(GreaterThan)"),
             BinaryOp::LessThanEquals => write!(f, "BinaryOp(LessThanEquals)"),
             BinaryOp::GreaterThanEquals => write!(f, "BinaryOp(GreaterThanEquals"),
+            BinaryOp::NotEquals => write!(f, "BinaryOp(NotEquals)"),
         }
     }
 }
@@ -123,6 +156,22 @@ impl Expr {
     pub fn debug_ast(&self, indent: usize) -> String {
         let pad = "  ".repeat(indent);
         match self {
+            Expr::Unary(op, expr) => match op {
+                UnaryOp::Neg => format!(
+                    "{pad}{}-{} {}({})",
+                    RED,
+                    RESET,
+                    expr.node.debug_ast(0).trim(),
+                    ""
+                ),
+                UnaryOp::Not => format!(
+                    "{pad}{}!{} {}({})",
+                    RED,
+                    RESET,
+                    expr.node.debug_ast(0).trim(),
+                    ""
+                ),
+            },
             Expr::Var(name) => format!("{pad}{}Var{}({})", CYAN, RESET, name),
             Expr::Int(n) => format!("{pad}{}Int{}({})", GREEN, RESET, n),
             Expr::Bool(b) => format!("{pad}{}Bool{}({})", YELLOW, RESET, b),
@@ -222,6 +271,59 @@ impl Expr {
                     ""
                 )
             }
+            Expr::StructDecl(name, fields, body) => {
+                let fields_str = fields
+                    .iter()
+                    .map(|(n, t)| format!("{}: {}", n, t.debug_type()))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!(
+                    "{pad}{}StructDecl{}({} {{ {} }})\n{}{}",
+                    BLUE,
+                    RESET,
+                    name,
+                    fields_str,
+                    "",
+                    body.node.debug_ast(indent + 1)
+                )
+            }
+            Expr::StructInit(name, fields) => {
+                let fields_str = fields
+                    .iter()
+                    .map(|(n, e)| format!("{}: {}", n, e.node.debug_ast(0).trim()))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!(
+                    "{pad}{}StructInit{}({} {{ {} }})",
+                    BLUE, RESET, name, fields_str
+                )
+            }
+            Expr::FieldAccess(expr, field) => {
+                format!(
+                    "{pad}{}FieldAccess{}({}.{})",
+                    BLUE,
+                    RESET,
+                    expr.node.debug_ast(0).trim(),
+                    field
+                )
+            }
+            Expr::Unary(op, expr) => match op {
+                UnaryOp::Neg => format!(
+                    "{pad}{}-{} {}({})",
+                    RED,
+                    RESET,
+                    expr.node.debug_ast(0).trim(),
+                    ""
+                ),
+                UnaryOp::Not => format!(
+                    "{pad}{}!{} {}({})",
+                    RED,
+                    RESET,
+                    expr.node.debug_ast(0).trim(),
+                    ""
+                ),
+            },
+            Expr::Error(msg) => format!("{pad}Error{RED} message{msg}"),
         }
     }
 }
@@ -260,6 +362,7 @@ impl Type {
                 RESET,
                 ""
             ),
+            Type::Struct(name) => format!("{}{}{}", CYAN, name, RESET),
         }
     }
 }

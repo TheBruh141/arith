@@ -24,6 +24,8 @@ pub enum Token {
     False,
     #[token("assert")]
     Assert,
+    #[token("struct")]
+    Struct,
 
     // Type Keywords
     #[token("Int")]
@@ -69,6 +71,8 @@ pub enum Token {
     Arrow,
     #[token(":")]
     Colon,
+    #[token(".")]
+    Dot,
     #[token("=")]
     Eq, // Assignment
     #[token("+")]
@@ -93,9 +97,18 @@ pub enum Token {
     #[token(";")]
     Semi,
 
+    #[token("{")]
+    LBrace,
+    #[token("}")]
+    RBrace,
+
     // Comparators
     #[token("==")]
     EqEq,
+    #[token("!=")]
+    NotEq,
+    #[token("!")]
+    Bang,
     #[token(">=")]
     Geq,
     #[token("<=")]

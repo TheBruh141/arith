@@ -16,6 +16,23 @@ pub fn unify(t1: &Type, t2: &Type) -> Result<(), (Type, Type)> {
             unify(v1, v2)?;
             unify_dim(dim1, dim2).map_err(|_| (t1.clone(), t2.clone()))
         }
+        (Type::Struct(n1), Type::Struct(n2)) if n1 == n2 => Ok(()),
+
+        // Primitives
+        (Type::I8, Type::I8) => Ok(()),
+        (Type::I16, Type::I16) => Ok(()),
+        (Type::I32, Type::I32) => Ok(()),
+        (Type::I64, Type::I64) => Ok(()),
+        (Type::Isize, Type::Isize) => Ok(()),
+        (Type::U8, Type::U8) => Ok(()),
+        (Type::U16, Type::U16) => Ok(()),
+        (Type::U32, Type::U32) => Ok(()),
+        (Type::U64, Type::U64) => Ok(()),
+        (Type::Usize, Type::Usize) => Ok(()),
+        (Type::F16, Type::F16) => Ok(()),
+        (Type::F32, Type::F32) => Ok(()),
+        (Type::F64, Type::F64) => Ok(()),
+
         (t1, t2) => Err((t1.clone(), t2.clone())),
     }
 }
@@ -31,9 +48,10 @@ fn unify_dim(d1: &TypeExpr, d2: &TypeExpr) -> Result<(), (TypeExpr, TypeExpr)> {
     } else {
         // Try to evaluate constant expressions
         if let (Some(n1), Some(n2)) = (eval_const(d1), eval_const(d2))
-            && n1 == n2 {
-                return Ok(());
-            }
+            && n1 == n2
+        {
+            return Ok(());
+        }
 
         Err((d1.clone(), d2.clone()))
     }

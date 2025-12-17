@@ -1,4 +1,4 @@
-use crate::syntax::ast::{BinaryOp, Expr};
+use crate::syntax::ast::{BinaryOp, Expr, UnaryOp};
 use crate::vm::core::OpCode;
 
 pub struct Compiler {
@@ -42,6 +42,14 @@ impl Compiler {
             Expr::LitF32(n) => self.emit(OpCode::PushF32(*n)),
             Expr::LitF64(n) => self.emit(OpCode::PushF64(*n)),
 
+            Expr::Unary(op, expr) => {
+                self.compile(&expr.node);
+                match op {
+                    UnaryOp::Neg => self.emit(OpCode::Neg),
+                    UnaryOp::Not => self.emit(OpCode::Not),
+                }
+            }
+
             Expr::Binary(lhs, op, rhs) => {
                 self.compile(&lhs.node);
                 self.compile(&rhs.node);
@@ -51,6 +59,10 @@ impl Compiler {
                     BinaryOp::Mul => self.emit(OpCode::Mul),
                     BinaryOp::Div => self.emit(OpCode::Div),
                     BinaryOp::Equals => self.emit(OpCode::Eq),
+                    BinaryOp::NotEquals => {
+                        self.emit(OpCode::Eq);
+                        self.emit(OpCode::Not);
+                    }
                     BinaryOp::LessThan => self.emit(OpCode::Lt),
                     BinaryOp::GreaterThan => self.emit(OpCode::Gt),
                     BinaryOp::LessThanEquals => self.emit(OpCode::Leq),
@@ -196,6 +208,29 @@ impl Compiler {
                     self.emit(OpCode::PushInt(num_bigint::BigInt::from(0)));
                 }
             }
+            Expr::StructDecl(_, _, body) => {
+                // Struct declaration is purely checking/metadata.
+                // At runtime, we just execute the body.
+                self.compile(&body.node);
+            }
+
+            Expr::StructInit(name, fields) => {
+                let mut field_names = Vec::new();
+                for (f_name, f_expr) in fields {
+                    self.compile(&f_expr.node);
+                    field_names.push(f_name.clone());
+                }
+                self.emit(OpCode::MakeStruct {
+                    name: name.clone(),
+                    fields: field_names,
+                });
+            }
+
+            Expr::FieldAccess(obj, field) => {
+                self.compile(&obj.node);
+                self.emit(OpCode::GetField(field.clone()));
+            }
+
             _ => {} // Should be covered
         }
     }

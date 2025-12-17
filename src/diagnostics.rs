@@ -1,4 +1,5 @@
 use crate::compiler_errors::CompileErr;
+use crate::syntax::ast::PartialParse;
 use ariadne::{Color, Fmt, Label, Report, ReportKind, sources};
 
 pub fn render_errors(source: &str, path: &str, errs: Vec<CompileErr>) {
@@ -70,6 +71,16 @@ pub fn render_errors(source: &str, path: &str, errs: Vec<CompileErr>) {
                     ))
                     .with_color(Color::Red),
             ),
+            CompileErr::Generic { span, message } => Report::build(
+                ReportKind::Error,
+                (path_string.clone(), span.clone()),
+            )
+            .with_message(&message)
+            .with_label(
+                Label::new((path_string.clone(), span))
+                    .with_message(message)
+                    .with_color(Color::Red),
+            ),
             CompileErr::BinaryOpMismatch {
                 span,
                 op,
@@ -133,10 +144,68 @@ pub fn render_errors(source: &str, path: &str, errs: Vec<CompileErr>) {
                     .with_message(message.fg(Color::Red))
                     .with_color(Color::Red),
             ),
+            CompileErr::UnknownType { span, type_name } => Report::build(
+                ReportKind::Error,
+                (path_string.clone(), span.clone()),
+            )
+            .with_message(format!("Unknown Type '{}'", type_name))
+            .with_label(
+                Label::new((path_string.clone(), span))
+                    .with_message(format!("Type '{}' not found", type_name))
+                    .with_color(Color::Red),
+            ),
+            CompileErr::UnknownField {
+                span,
+                struct_name,
+                field_name,
+            } => Report::build(ReportKind::Error, (path_string.clone(), span.clone()))
+                .with_message(format!(
+                    "Unknown Field '{}' in struct '{}'",
+                    field_name, struct_name
+                ))
+                .with_label(
+                    Label::new((path_string.clone(), span))
+                        .with_message(format!(
+                            "Field '{}' does not exist in '{}'",
+                            field_name, struct_name
+                        ))
+                        .with_color(Color::Red),
+                ),
+            CompileErr::MissingField {
+                span,
+                struct_name,
+                field_name,
+            } => Report::build(ReportKind::Error, (path_string.clone(), span.clone()))
+                .with_message(format!(
+                    "Missing Field '{}' in initialization of '{}'",
+                    field_name, struct_name
+                ))
+                .with_label(
+                    Label::new((path_string.clone(), span))
+                        .with_message(format!("Field '{}' is missing", field_name))
+                        .with_color(Color::Red),
+                ),
+            CompileErr::NotAStruct { span, found } => Report::build(
+                ReportKind::Error,
+                (path_string.clone(), span.clone()),
+            )
+            .with_message("Expected a Struct for property access")
+            .with_label(
+                Label::new((path_string.clone(), span))
+                    .with_message(format!(
+                        "Expected a Struct but found type '{}'",
+                        found.debug_type()
+                    ))
+                    .with_color(Color::Red),
+            ),
         };
         report
             .finish()
             .print(sources(vec![(path_string.clone(), source)]))
             .unwrap();
     });
+}
+
+pub fn render_errors_from_partial_parse(source: &str, path: &str, partial_parse: PartialParse) {
+    render_errors(source, path, partial_parse.errors)
 }

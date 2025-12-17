@@ -29,6 +29,12 @@ pub enum Value {
         env: HashMap<String, Value>,
         rec_name: Option<String>,
     },
+
+    // Structs
+    Struct {
+        name: String,
+        fields: HashMap<String, Value>,
+    },
 }
 
 impl fmt::Display for Value {
@@ -50,6 +56,8 @@ impl fmt::Display for Value {
             Value::F32(n) => write!(f, "{}f32", n),
             Value::F64(n) => write!(f, "{}f64", n),
             Value::Closure { .. } => write!(f, "<function>"),
+            // TODO: Pretty print struct fields
+            Value::Struct { name, .. } => write!(f, "<struct {}>", name),
         }
     }
 }
@@ -90,6 +98,8 @@ pub enum OpCode {
     Gt,
     Leq,
     Geq,
+    Not, // Boolean negation
+    Neg, // Arithmetic negation
 
     // Variables
     // In a production VM, strings would be resolved to integer indices at compile time.
@@ -117,6 +127,13 @@ pub enum OpCode {
         rec_name: String,
         captures: Vec<String>, // Optimized capture list
     },
+
+    // Structs
+    MakeStruct {
+        name: String,
+        fields: Vec<String>, // Field names corresponding to values on stack
+    },
+    GetField(String),
 
     // Calls the function/closure at the top of the stack
     Call,
@@ -187,6 +204,8 @@ impl fmt::Display for OpCode {
                 "{} rec:{YELLOW}{rec_name}{RESET} param:{YELLOW}{param}{RESET} @{YELLOW}{addr}{RESET}",
                 op("REC_CLOSURE"),
             ),
+            MakeStruct { name, .. } => write!(f, "{} {YELLOW}{}{RESET}", op("MAKE_STRUCT"), name),
+            GetField(s) => write!(f, "{} {YELLOW}{}{RESET}", op("GET_FIELD"), s),
             Call => write!(f, "{}", op("CALL")),
             Return => write!(f, "{}", op("RETURN")),
             Assert => write!(f, "{}", op("ASSERT")),
@@ -197,6 +216,8 @@ impl fmt::Display for OpCode {
             Gt => write!(f, "{}", op("Gt")),
             Leq => write!(f, "{}", op("Leq")),
             Geq => write!(f, "{}", op("Geq")),
+            Not => write!(f, "{}", op("Not")),
+            Neg => write!(f, "{}", op("Neg")),
         }
     }
 }
@@ -264,6 +285,22 @@ impl VM {
                 OpCode::PushF16(n) => self.stack.push(Value::F16(n)),
                 OpCode::PushF32(n) => self.stack.push(Value::F32(n)),
                 OpCode::PushF64(n) => self.stack.push(Value::F64(n)),
+                OpCode::Neg => {
+                    let val = self.stack.pop().ok_or("Stack underflow")?;
+                    let res = match val {
+                        Value::Int(n) => Value::Int(-n),
+                        Value::I8(n) => Value::I8(-n),
+                        Value::I16(n) => Value::I16(-n),
+                        Value::I32(n) => Value::I32(-n),
+                        Value::I64(n) => Value::I64(-n),
+                        Value::Isize(n) => Value::Isize(-n),
+                        Value::F16(n) => Value::F16(-n),
+                        Value::F32(n) => Value::F32(-n),
+                        Value::F64(n) => Value::F64(-n),
+                        _ => return Err(format!("Negation not supported for {}", val)),
+                    };
+                    self.stack.push(res);
+                }
 
                 OpCode::Pop => {
                     self.stack.pop();
@@ -279,17 +316,94 @@ impl VM {
                     let rhs = self.stack.pop().ok_or("Stack underflow")?;
                     let lhs = self.stack.pop().ok_or("Stack underflow")?;
 
-                    let res = match (lhs, rhs, &op) {
+                    let res = match (&lhs, &rhs, &op) {
+                        // Equality
                         (Value::Int(a), Value::Int(b), OpCode::Eq) => Value::Bool(a == b),
                         (Value::Bool(a), Value::Bool(b), OpCode::Eq) => Value::Bool(a == b),
+                        (Value::I8(a), Value::I8(b), OpCode::Eq) => Value::Bool(a == b),
+                        (Value::I16(a), Value::I16(b), OpCode::Eq) => Value::Bool(a == b),
+                        (Value::I32(a), Value::I32(b), OpCode::Eq) => Value::Bool(a == b),
+                        (Value::I64(a), Value::I64(b), OpCode::Eq) => Value::Bool(a == b),
+                        (Value::Isize(a), Value::Isize(b), OpCode::Eq) => Value::Bool(a == b),
+                        (Value::U8(a), Value::U8(b), OpCode::Eq) => Value::Bool(a == b),
+                        (Value::U16(a), Value::U16(b), OpCode::Eq) => Value::Bool(a == b),
+                        (Value::U32(a), Value::U32(b), OpCode::Eq) => Value::Bool(a == b),
+                        (Value::U64(a), Value::U64(b), OpCode::Eq) => Value::Bool(a == b),
+                        (Value::Usize(a), Value::Usize(b), OpCode::Eq) => Value::Bool(a == b),
+                        (Value::F16(a), Value::F16(b), OpCode::Eq) => Value::Bool(a == b),
+                        (Value::F32(a), Value::F32(b), OpCode::Eq) => Value::Bool(a == b),
+                        (Value::F64(a), Value::F64(b), OpCode::Eq) => Value::Bool(a == b),
 
+                        // Less Than
                         (Value::Int(a), Value::Int(b), OpCode::Lt) => Value::Bool(a < b),
-                        (Value::Int(a), Value::Int(b), OpCode::Geq) => Value::Bool(a >= b),
+                        (Value::I8(a), Value::I8(b), OpCode::Lt) => Value::Bool(a < b),
+                        (Value::I16(a), Value::I16(b), OpCode::Lt) => Value::Bool(a < b),
+                        (Value::I32(a), Value::I32(b), OpCode::Lt) => Value::Bool(a < b),
+                        (Value::I64(a), Value::I64(b), OpCode::Lt) => Value::Bool(a < b),
+                        (Value::Isize(a), Value::Isize(b), OpCode::Lt) => Value::Bool(a < b),
+                        (Value::U8(a), Value::U8(b), OpCode::Lt) => Value::Bool(a < b),
+                        (Value::U16(a), Value::U16(b), OpCode::Lt) => Value::Bool(a < b),
+                        (Value::U32(a), Value::U32(b), OpCode::Lt) => Value::Bool(a < b),
+                        (Value::U64(a), Value::U64(b), OpCode::Lt) => Value::Bool(a < b),
+                        (Value::Usize(a), Value::Usize(b), OpCode::Lt) => Value::Bool(a < b),
+                        (Value::F16(a), Value::F16(b), OpCode::Lt) => Value::Bool(a < b),
+                        (Value::F32(a), Value::F32(b), OpCode::Lt) => Value::Bool(a < b),
+                        (Value::F64(a), Value::F64(b), OpCode::Lt) => Value::Bool(a < b),
 
+                        // Greater Than
                         (Value::Int(a), Value::Int(b), OpCode::Gt) => Value::Bool(a > b),
-                        (Value::Int(a), Value::Int(b), OpCode::Leq) => Value::Bool(a <= b),
+                        (Value::I8(a), Value::I8(b), OpCode::Gt) => Value::Bool(a > b),
+                        (Value::I16(a), Value::I16(b), OpCode::Gt) => Value::Bool(a > b),
+                        (Value::I32(a), Value::I32(b), OpCode::Gt) => Value::Bool(a > b),
+                        (Value::I64(a), Value::I64(b), OpCode::Gt) => Value::Bool(a > b),
+                        (Value::Isize(a), Value::Isize(b), OpCode::Gt) => Value::Bool(a > b),
+                        (Value::U8(a), Value::U8(b), OpCode::Gt) => Value::Bool(a > b),
+                        (Value::U16(a), Value::U16(b), OpCode::Gt) => Value::Bool(a > b),
+                        (Value::U32(a), Value::U32(b), OpCode::Gt) => Value::Bool(a > b),
+                        (Value::U64(a), Value::U64(b), OpCode::Gt) => Value::Bool(a > b),
+                        (Value::Usize(a), Value::Usize(b), OpCode::Gt) => Value::Bool(a > b),
+                        (Value::F16(a), Value::F16(b), OpCode::Gt) => Value::Bool(a > b),
+                        (Value::F32(a), Value::F32(b), OpCode::Gt) => Value::Bool(a > b),
+                        (Value::F64(a), Value::F64(b), OpCode::Gt) => Value::Bool(a > b),
 
-                        _ => return Err("Comparison mismatch".to_string()),
+                        // Less Than Equals
+                        (Value::Int(a), Value::Int(b), OpCode::Leq) => Value::Bool(a <= b),
+                        (Value::I8(a), Value::I8(b), OpCode::Leq) => Value::Bool(a <= b),
+                        (Value::I16(a), Value::I16(b), OpCode::Leq) => Value::Bool(a <= b),
+                        (Value::I32(a), Value::I32(b), OpCode::Leq) => Value::Bool(a <= b),
+                        (Value::I64(a), Value::I64(b), OpCode::Leq) => Value::Bool(a <= b),
+                        (Value::Isize(a), Value::Isize(b), OpCode::Leq) => Value::Bool(a <= b),
+                        (Value::U8(a), Value::U8(b), OpCode::Leq) => Value::Bool(a <= b),
+                        (Value::U16(a), Value::U16(b), OpCode::Leq) => Value::Bool(a <= b),
+                        (Value::U32(a), Value::U32(b), OpCode::Leq) => Value::Bool(a <= b),
+                        (Value::U64(a), Value::U64(b), OpCode::Leq) => Value::Bool(a <= b),
+                        (Value::Usize(a), Value::Usize(b), OpCode::Leq) => Value::Bool(a <= b),
+                        (Value::F16(a), Value::F16(b), OpCode::Leq) => Value::Bool(a <= b),
+                        (Value::F32(a), Value::F32(b), OpCode::Leq) => Value::Bool(a <= b),
+                        (Value::F64(a), Value::F64(b), OpCode::Leq) => Value::Bool(a <= b),
+
+                        // Greater Than Equals
+                        (Value::Int(a), Value::Int(b), OpCode::Geq) => Value::Bool(a >= b),
+                        (Value::I8(a), Value::I8(b), OpCode::Geq) => Value::Bool(a >= b),
+                        (Value::I16(a), Value::I16(b), OpCode::Geq) => Value::Bool(a >= b),
+                        (Value::I32(a), Value::I32(b), OpCode::Geq) => Value::Bool(a >= b),
+                        (Value::I64(a), Value::I64(b), OpCode::Geq) => Value::Bool(a >= b),
+                        (Value::Isize(a), Value::Isize(b), OpCode::Geq) => Value::Bool(a >= b),
+                        (Value::U8(a), Value::U8(b), OpCode::Geq) => Value::Bool(a >= b),
+                        (Value::U16(a), Value::U16(b), OpCode::Geq) => Value::Bool(a >= b),
+                        (Value::U32(a), Value::U32(b), OpCode::Geq) => Value::Bool(a >= b),
+                        (Value::U64(a), Value::U64(b), OpCode::Geq) => Value::Bool(a >= b),
+                        (Value::Usize(a), Value::Usize(b), OpCode::Geq) => Value::Bool(a >= b),
+                        (Value::F16(a), Value::F16(b), OpCode::Geq) => Value::Bool(a >= b),
+                        (Value::F32(a), Value::F32(b), OpCode::Geq) => Value::Bool(a >= b),
+                        (Value::F64(a), Value::F64(b), OpCode::Geq) => Value::Bool(a >= b),
+
+                        _ => {
+                            return Err(format!(
+                                "Comparison mismatch for {:?} {:?} {:?}",
+                                lhs, op, rhs
+                            ));
+                        }
                     };
                     self.stack.push(res);
                 }
@@ -421,6 +535,34 @@ impl VM {
                     }
                 }
 
+                OpCode::MakeStruct { name, fields } => {
+                    let mut struct_val_fields = HashMap::new();
+                    // Fields are pushed in order, so popping gives reverse order
+                    // field_names in opcode is [f1, f2, f3]
+                    // Stack is [v1, v2, v3] (top)
+                    // Pop -> v3 (matches f3)
+                    for field_name in fields.iter().rev() {
+                        let val = self.stack.pop().ok_or("Stack underflow for struct init")?;
+                        struct_val_fields.insert(field_name.clone(), val);
+                    }
+                    self.stack.push(Value::Struct {
+                        name: name.clone(),
+                        fields: struct_val_fields,
+                    });
+                }
+
+                OpCode::GetField(field_name) => {
+                    let obj = self.stack.pop().ok_or("Stack underflow for field access")?;
+                    if let Value::Struct { name: _, fields } = obj {
+                        let val = fields
+                            .get(&field_name)
+                            .ok_or_else(|| format!("Field '{}' not found in struct", field_name))?;
+                        self.stack.push(val.clone());
+                    } else {
+                        return Err(format!("Field access on non-struct value: {}", obj));
+                    }
+                }
+
                 OpCode::Return => {
                     if let Some(frame) = self.frames.pop() {
                         self.ip = frame.return_ip;
@@ -452,6 +594,15 @@ impl VM {
                             return Err(format!("Assertion failed at IP:{}", self.ip - 1));
                         }
                         _ => return Err("Assert requires boolean".to_string()),
+                    }
+                }
+
+                OpCode::Not => {
+                    let val = self.stack.pop().ok_or("Stack underflow")?;
+                    if let Value::Bool(b) = val {
+                        self.stack.push(Value::Bool(!b));
+                    } else {
+                        return Err(format!("'not' requires bool, got {}", val));
                     }
                 }
             }
@@ -636,6 +787,27 @@ impl VM {
             self.ip += 1; // Advance IP
 
             match op {
+                OpCode::MakeStruct { name, fields } => {
+                    let mut struct_val_fields = HashMap::new();
+                    // Same logic as run
+                    for field_name in fields.iter().rev() {
+                        let val = self.stack.pop().ok_or("Stack underflow")?;
+                        struct_val_fields.insert(field_name.clone(), val);
+                    }
+                    self.stack.push(Value::Struct {
+                        name: name.clone(),
+                        fields: struct_val_fields,
+                    });
+                }
+                OpCode::GetField(field_name) => {
+                    let obj = self.stack.pop().ok_or("Stack underflow")?;
+                    if let Value::Struct { fields, .. } = obj {
+                        let val = fields.get(&field_name).ok_or("Field not found")?;
+                        self.stack.push(val.clone());
+                    } else {
+                        return Err("Not a struct".to_string());
+                    }
+                }
                 OpCode::Halt => break,
 
                 OpCode::PushInt(n) => self.stack.push(Value::Int(n)),
@@ -654,6 +826,24 @@ impl VM {
                 OpCode::PushF32(n) => self.stack.push(Value::F32(n)),
                 OpCode::PushF64(n) => self.stack.push(Value::F64(n)),
 
+                OpCode::Neg => {
+                    let val = self.stack.pop().ok_or("Stack underflow")?;
+                    let res = match val {
+                        Value::Int(n) => Value::Int(-n),
+                        Value::I8(n) => Value::I8(-n),
+                        Value::I16(n) => Value::I16(-n),
+                        Value::I32(n) => Value::I32(-n),
+                        Value::I64(n) => Value::I64(-n),
+                        Value::Isize(n) => Value::Isize(-n),
+                        // Floats
+                        Value::F16(n) => Value::F16(-n),
+                        Value::F32(n) => Value::F32(-n),
+                        Value::F64(n) => Value::F64(-n),
+                        _ => return Err(format!("Negation not supported for {}", val)),
+                    };
+                    self.stack.push(res);
+                }
+
                 OpCode::Pop => {
                     self.stack.pop();
                 }
@@ -667,6 +857,15 @@ impl VM {
                 }
 
                 // Logic (Use binary_op later or keep inline if specific)
+                OpCode::Not => {
+                    let val = self.stack.pop().ok_or("Stack underflow")?;
+                    if let Value::Bool(b) = val {
+                        self.stack.push(Value::Bool(!b));
+                    } else {
+                        return Err("Not requires bool".to_string());
+                    }
+                }
+
                 OpCode::Eq | OpCode::Lt | OpCode::Gt | OpCode::Leq | OpCode::Geq => {
                     let rhs = self.stack.pop().ok_or("Stack underflow")?;
                     let lhs = self.stack.pop().ok_or("Stack underflow")?;
