@@ -9,7 +9,7 @@ pub struct Spanned<T> {
     pub span: Span,
 }
 
-impl <T> Spanned<T> {
+impl<T> Spanned<T> {
     pub fn new(node: T, span: Span) -> Self {
         Spanned { node, span }
     }
@@ -54,9 +54,9 @@ pub enum Expr {
     App(Box<Spanned<Expr>>, Box<Spanned<Expr>>),
     Binary(Box<Spanned<Expr>>, BinaryOp, Box<Spanned<Expr>>),
     Let(String, Box<Spanned<Expr>>, Box<Spanned<Expr>>),
+    LetRec(String, Box<Spanned<Expr>>, Box<Spanned<Expr>>),
     If(Box<Spanned<Expr>>, Box<Spanned<Expr>>, Box<Spanned<Expr>>),
 }
-
 
 const RESET: &str = "\x1b[0m";
 const RED: &str = "\x1b[31m";
@@ -126,6 +126,18 @@ impl Expr {
             Expr::Let(name, expr, body) => {
                 format!(
                     "{pad}{}Let{}({})\n{}{}\n{}{}",
+                    BLUE,
+                    RESET,
+                    name,
+                    expr.node.debug_ast(indent + 1),
+                    "",
+                    body.node.debug_ast(indent + 1),
+                    ""
+                )
+            }
+            Expr::LetRec(name, expr, body) => {
+                format!(
+                    "{pad}{}LetRec{}({})\n{}{}\n{}{}",
                     BLUE,
                     RESET,
                     name,

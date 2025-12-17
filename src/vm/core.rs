@@ -13,6 +13,7 @@ pub enum Value {
         addr: usize,
         param: String,
         env: HashMap<String, Value>,
+        rec_name: Option<String>,
     },
 }
 
@@ -62,7 +63,16 @@ pub enum OpCode {
 
     // Functions
     // Creates a closure from the code at `addr`, expecting parameter `param_name`
-    MakeClosure { addr: usize, param: String },
+    MakeClosure {
+        addr: usize,
+        param: String,
+    },
+    // Creates a recursive closure. `rec_name` is key to bind the closure to itself in its env.
+    MakeRecursiveClosure {
+        addr: usize,
+        param: String,
+        rec_name: String,
+    },
     // Calls the function/closure at the top of the stack
     Call,
     // Returns from the current function
@@ -104,6 +114,15 @@ impl fmt::Display for OpCode {
                 f,
                 "{} param:{YELLOW}{param}{RESET} @{YELLOW}{addr}{RESET}",
                 op("CLOSURE"),
+            ),
+            MakeRecursiveClosure {
+                addr,
+                param,
+                rec_name,
+            } => write!(
+                f,
+                "{} rec:{YELLOW}{rec_name}{RESET} param:{YELLOW}{param}{RESET} @{YELLOW}{addr}{RESET}",
+                op("REC_CLOSURE"),
             ),
             Call => write!(f, "{}", op("CALL")),
             Return => write!(f, "{}", op("RETURN")),
@@ -261,6 +280,28 @@ impl VM {
                         addr,
                         param,
                         env: flat_env,
+                        rec_name: None,
+                    });
+                }
+                OpCode::MakeRecursiveClosure {
+                    addr,
+                    param,
+                    rec_name,
+                } => {
+                    let mut flat_env = HashMap::new();
+                    if let Some(frame) = self.frames.last() {
+                        for (k, v_vec) in &frame.locals {
+                            if let Some(top_val) = v_vec.last() {
+                                flat_env.insert(k.clone(), top_val.clone());
+                            }
+                        }
+                    }
+
+                    self.stack.push(Value::Closure {
+                        addr,
+                        param,
+                        env: flat_env,
+                        rec_name: Some(rec_name),
                     });
                 }
 
@@ -268,20 +309,31 @@ impl VM {
                     let arg = self.stack.pop().ok_or("Stack underflow (arg)")?;
                     let func = self.stack.pop().ok_or("Stack underflow (func)")?;
 
-                    if let Value::Closure { addr, param, env } = func {
-                        // Convert flat env back to shadowing-capable env
+                    if let Value::Closure {
+                        addr,
+                        param,
+                        env,
+                        rec_name,
+                    } = &func
+                    {
                         let mut local_env: HashMap<String, Vec<Value>> = HashMap::new();
                         for (k, v) in env {
-                            local_env.insert(k, vec![v]);
+                            local_env.insert(k.clone(), vec![v.clone()]);
                         }
-                        // Bind argument
-                        local_env.entry(param).or_default().push(arg);
+                        local_env.entry(param.clone()).or_default().push(arg);
+
+                        if let Some(rname) = rec_name {
+                            local_env
+                                .entry(rname.clone())
+                                .or_default()
+                                .push(func.clone());
+                        }
 
                         self.frames.push(CallFrame {
                             return_ip: self.ip,
                             locals: local_env,
                         });
-                        self.ip = addr;
+                        self.ip = *addr;
                     } else {
                         return Err("Trying to call a non-function value".to_string());
                     }
@@ -498,37 +550,69 @@ impl VM {
                         addr,
                         param,
                         env: flat_env,
+                        rec_name: None,
                     });
                 }
 
+                OpCode::MakeRecursiveClosure {
+                    addr,
+                    param,
+                    rec_name,
+                } => {
+                    let mut flat_env = HashMap::new();
+                    if let Some(frame) = self.frames.last() {
+                        for (k, v_vec) in &frame.locals {
+                            if let Some(top_val) = v_vec.last() {
+                                flat_env.insert(k.clone(), top_val.clone());
+                            }
+                        }
+                    }
+                    self.stack.push(Value::Closure {
+                        addr,
+                        param,
+                        env: flat_env,
+                        rec_name: Some(rec_name),
+                    });
+                }
                 OpCode::Call => {
-                    let arg = self.stack.pop().ok_or("Stack underflow")?;
-                    let func = self.stack.pop().ok_or("Stack underflow")?;
+                    let arg = self.stack.pop().ok_or("Stack underflow (arg)")?;
+                    let func = self.stack.pop().ok_or("Stack underflow (func)")?;
 
-                    if let Value::Closure { addr, param, env } = func {
+                    if let Value::Closure {
+                        addr,
+                        param,
+                        env,
+                        rec_name,
+                    } = &func
+                    {
+                        // Convert flat env back to shadowing-capable env
                         let mut local_env: HashMap<String, Vec<Value>> = HashMap::new();
-                        // Hydrate environment (env map -> shadowing stacks)
                         for (k, v) in env {
-                            local_env.insert(k, vec![v]);
+                            local_env.insert(k.clone(), vec![v.clone()]);
                         }
                         // Bind argument
-                        local_env.entry(param).or_default().push(arg);
+                        local_env.entry(param.clone()).or_default().push(arg);
+
+                        if let Some(rname) = rec_name {
+                            local_env
+                                .entry(rname.clone())
+                                .or_default()
+                                .push(func.clone());
+                        }
 
                         self.frames.push(CallFrame {
                             return_ip: self.ip,
                             locals: local_env,
                         });
-                        self.ip = addr;
+                        self.ip = *addr;
                     } else {
-                        return Err("Calling non-function".into());
+                        return Err("Trying to call a non-function value".to_string());
                     }
                 }
-
                 OpCode::Return => {
                     if let Some(frame) = self.frames.pop() {
                         self.ip = frame.return_ip;
                     } else {
-                        // Returning from root frame implies end of program
                         break;
                     }
                 }

@@ -137,13 +137,18 @@ pub fn parser() -> impl Parser<Token, Spanned<Expr>, Error = Simple<Token>> {
             });
 
         let let_expr = just(Token::Let)
-            .ignore_then(ident)
+            .ignore_then(just(Token::Rec).or_not()) // Optional 'rec'
+            .then(ident)
             .then_ignore(just(Token::Eq))
             .then(expr.clone())
             .then_ignore(just(Token::In))
             .then(expr.clone())
-            .map_with_span(|((var, e1), e2), span| {
-                Spanned::new(Expr::Let(var, Box::new(e1), Box::new(e2)), span)
+            .map_with_span(|(((rec_opt, var), e1), e2), span| {
+                if rec_opt.is_some() {
+                    Spanned::new(Expr::LetRec(var, Box::new(e1), Box::new(e2)), span)
+                } else {
+                    Spanned::new(Expr::Let(var, Box::new(e1), Box::new(e2)), span)
+                }
             });
 
         let if_expr = just(Token::If)

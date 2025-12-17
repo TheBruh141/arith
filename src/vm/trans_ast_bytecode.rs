@@ -49,6 +49,42 @@ impl Compiler {
                 self.emit(OpCode::PopBinding(name.clone()));
             }
 
+            Expr::LetRec(name, val_expr, body_expr) => {
+                if let Expr::Abs(param, _, fn_body) = &val_expr.node {
+                    // Special handling to emit MakeRecursiveClosure
+                    let jump_over_idx = self.code.len();
+                    self.emit(OpCode::Jump(0)); // Placeholder
+
+                    let fn_start = self.code.len();
+                    self.compile(&fn_body.node);
+                    self.emit(OpCode::Return);
+
+                    let after_fn = self.code.len();
+                    self.code[jump_over_idx] = OpCode::Jump(after_fn);
+
+                    self.emit(OpCode::MakeRecursiveClosure {
+                        addr: fn_start,
+                        param: param.clone(),
+                        rec_name: name.clone(),
+                    });
+
+                    // Store the closure
+                    self.emit(OpCode::Store(name.clone()));
+
+                    // Compile body
+                    self.compile(&body_expr.node);
+
+                    // Clean up
+                    self.emit(OpCode::PopBinding(name.clone()));
+                } else {
+                    // Fallback to normal let if not a function (e.g. let rec x = 1 is just let x = 1)
+                    self.compile(&val_expr.node);
+                    self.emit(OpCode::Store(name.clone()));
+                    self.compile(&body_expr.node);
+                    self.emit(OpCode::PopBinding(name.clone()));
+                }
+            }
+
             Expr::If(cond, then_expr, else_expr) => {
                 self.compile(&cond.node);
 

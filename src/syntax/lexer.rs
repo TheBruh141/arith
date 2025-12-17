@@ -1,12 +1,14 @@
 use logos::Logos;
 use std::fmt;
 
-#[derive(Logos, Debug, PartialEq, Clone, Hash, Eq)] 
+#[derive(Logos, Debug, PartialEq, Clone, Hash, Eq)]
 #[logos(skip r"[ \t\n\f]+")] // Skip whitespace
 pub enum Token {
     // Keywords
     #[token("let")]
     Let,
+    #[token("rec")]
+    Rec,
     #[token("in")]
     In,
     #[token("if")]
@@ -60,7 +62,7 @@ pub enum Token {
     #[token("==")]
     EqEq,
     #[token(">=")]
-    Geq, 
+    Geq,
     #[token("<=")]
     Leq,
 
