@@ -9,11 +9,11 @@ fn test_simple_arithmetic() {
     // 1 + (2 * 3)
     match expr.node {
         Expr::Binary(lhs, BinaryOp::Add, rhs) => {
-            assert!(matches!(lhs.node, Expr::Int(1)));
-            match rhs.node {
+            assert!(matches!(&lhs.node, Expr::Int(s) if s == "1"));
+            match &rhs.node {
                 Expr::Binary(rl, BinaryOp::Mul, rr) => {
-                    assert!(matches!(rl.node, Expr::Int(2)));
-                    assert!(matches!(rr.node, Expr::Int(3)));
+                    assert!(matches!(&rl.node, Expr::Int(s) if s == "2"));
+                    assert!(matches!(&rr.node, Expr::Int(s) if s == "3"));
                 }
                 _ => panic!("Expected multiplication on rhs"),
             }

@@ -13,6 +13,9 @@ thiserror = "2.0.17"
 logos = "0.16.0"
 chumsky = "0.9.3"
 ariadne = { version = "0.6.0", features = ["auto-color"] }
+num-bigint = "0.4"
+num-traits = "0.2"
+half = "2.3"
 [dev-dependencies]
 criterion = { version = "0.8.1", features = ["html_reports"]  }
 

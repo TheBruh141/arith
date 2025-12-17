@@ -1,14 +1,28 @@
 use std::collections::HashMap;
 use std::fmt;
 
+use num_bigint::BigInt;
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Value {
-    Int(i64),
+    Int(BigInt), // Default arbitrary precision
     Bool(bool),
-    // A Closure contains:
-    // 1. The instruction index where the function code starts.
-    // 2. The name of the argument variable (so we can bind it when called).
-    // 3. The Captured Environment (variables from outer scopes).
+
+    // Primitives
+    I8(i8),
+    I16(i16),
+    I32(i32),
+    I64(i64),
+    Isize(isize),
+    U8(u8),
+    U16(u16),
+    U32(u32),
+    U64(u64),
+    Usize(usize),
+    F16(f32), // Store as f32 for now
+    F32(f32),
+    F64(f64),
+
     Closure {
         addr: usize,
         param: String,
@@ -22,6 +36,19 @@ impl fmt::Display for Value {
         match self {
             Value::Int(n) => write!(f, "{}", n),
             Value::Bool(b) => write!(f, "{}", b),
+            Value::I8(n) => write!(f, "{}i8", n),
+            Value::I16(n) => write!(f, "{}i16", n),
+            Value::I32(n) => write!(f, "{}i32", n),
+            Value::I64(n) => write!(f, "{}i64", n),
+            Value::Isize(n) => write!(f, "{}isize", n),
+            Value::U8(n) => write!(f, "{}u8", n),
+            Value::U16(n) => write!(f, "{}u16", n),
+            Value::U32(n) => write!(f, "{}u32", n),
+            Value::U64(n) => write!(f, "{}u64", n),
+            Value::Usize(n) => write!(f, "{}usize", n),
+            Value::F16(n) => write!(f, "{}f16", n),
+            Value::F32(n) => write!(f, "{}f32", n),
+            Value::F64(n) => write!(f, "{}f64", n),
             Value::Closure { .. } => write!(f, "<function>"),
         }
     }
@@ -32,8 +59,23 @@ impl fmt::Display for Value {
 #[derive(Debug, Clone)]
 pub enum OpCode {
     // Stack manipulation
-    PushInt(i64),
+    PushInt(BigInt),
     PushBool(bool),
+
+    PushI8(i8),
+    PushI16(i16),
+    PushI32(i32),
+    PushI64(i64),
+    PushIsize(isize),
+    PushU8(u8),
+    PushU16(u16),
+    PushU32(u32),
+    PushU64(u64),
+    PushUsize(usize),
+    PushF16(f32),
+    PushF32(f32),
+    PushF64(f64),
+
     Pop, // Discard top of stack
 
     // Arithmetic
@@ -59,24 +101,30 @@ pub enum OpCode {
 
     // Control Flow
     Jump(usize),        // Unconditional jump to index
-    JumpIfFalse(usize), // Jump if top of stack is false
+    JumpIfFalse(usize), // Jumps if the top of the stack is false
 
-    // Functions
-    // Creates a closure from the code at `addr`, expecting parameter `param_name`
+    // Creates a closure from the given function address and environment
     MakeClosure {
         addr: usize,
         param: String,
+        captures: Vec<String>, // Optimized capture list
     },
-    // Creates a recursive closure. `rec_name` is key to bind the closure to itself in its env.
+
+    // Recursive closures need a reference to themselves in their environment
     MakeRecursiveClosure {
         addr: usize,
         param: String,
         rec_name: String,
+        captures: Vec<String>, // Optimized capture list
     },
+
     // Calls the function/closure at the top of the stack
     Call,
     // Returns from the current function
     Return,
+
+    // Assert: Pops a boolean. Panics if false.
+    Assert,
 
     // Stop the VM
     Halt,
@@ -100,6 +148,20 @@ impl fmt::Display for OpCode {
         match self {
             PushInt(n) => write!(f, "{} {YELLOW}{n}{RESET}", op("PUSH_INT")),
             PushBool(b) => write!(f, "{} {YELLOW}{b}{RESET}", op("PUSH_BOOL")),
+            PushI8(n) => write!(f, "{} {YELLOW}{n}i8{RESET}", op("PUSH_I8")),
+            PushI16(n) => write!(f, "{} {YELLOW}{n}i16{RESET}", op("PUSH_I16")),
+            PushI32(n) => write!(f, "{} {YELLOW}{n}i32{RESET}", op("PUSH_I32")),
+            PushI64(n) => write!(f, "{} {YELLOW}{n}i64{RESET}", op("PUSH_I64")),
+            PushIsize(n) => write!(f, "{} {YELLOW}{n}isize{RESET}", op("PUSH_ISIZE")),
+            PushU8(n) => write!(f, "{} {YELLOW}{n}u8{RESET}", op("PUSH_U8")),
+            PushU16(n) => write!(f, "{} {YELLOW}{n}u16{RESET}", op("PUSH_U16")),
+            PushU32(n) => write!(f, "{} {YELLOW}{n}u32{RESET}", op("PUSH_U32")),
+            PushU64(n) => write!(f, "{} {YELLOW}{n}u64{RESET}", op("PUSH_U64")),
+            PushUsize(n) => write!(f, "{} {YELLOW}{n}usize{RESET}", op("PUSH_USIZE")),
+            PushF16(n) => write!(f, "{} {YELLOW}{n}f16{RESET}", op("PUSH_F16")),
+            PushF32(n) => write!(f, "{} {YELLOW}{n}f32{RESET}", op("PUSH_F32")),
+            PushF64(n) => write!(f, "{} {YELLOW}{n}f64{RESET}", op("PUSH_F64")),
+
             Pop => write!(f, "{}", op("POP")),
             Add => write!(f, "{}", op("ADD")),
             Sub => write!(f, "{}", op("SUB")),
@@ -110,7 +172,7 @@ impl fmt::Display for OpCode {
             PopBinding(s) => write!(f, "{} {YELLOW}{s}{RESET}", op("POP_BINDING")),
             Jump(n) => write!(f, "{} @{YELLOW}{n}{RESET}", op("JUMP")),
             JumpIfFalse(n) => write!(f, "{} @{YELLOW}{n}{RESET}", op("JUMP_IF_FALSE"),),
-            MakeClosure { addr, param } => write!(
+            MakeClosure { addr, param, .. } => write!(
                 f,
                 "{} param:{YELLOW}{param}{RESET} @{YELLOW}{addr}{RESET}",
                 op("CLOSURE"),
@@ -119,6 +181,7 @@ impl fmt::Display for OpCode {
                 addr,
                 param,
                 rec_name,
+                ..
             } => write!(
                 f,
                 "{} rec:{YELLOW}{rec_name}{RESET} param:{YELLOW}{param}{RESET} @{YELLOW}{addr}{RESET}",
@@ -126,6 +189,7 @@ impl fmt::Display for OpCode {
             ),
             Call => write!(f, "{}", op("CALL")),
             Return => write!(f, "{}", op("RETURN")),
+            Assert => write!(f, "{}", op("ASSERT")),
             Halt => write!(f, "{}", op("HALT")),
 
             Eq => write!(f, "{}", op("Eq")),
@@ -187,6 +251,19 @@ impl VM {
 
                 OpCode::PushInt(n) => self.stack.push(Value::Int(n)),
                 OpCode::PushBool(b) => self.stack.push(Value::Bool(b)),
+                OpCode::PushI8(n) => self.stack.push(Value::I8(n)),
+                OpCode::PushI16(n) => self.stack.push(Value::I16(n)),
+                OpCode::PushI32(n) => self.stack.push(Value::I32(n)),
+                OpCode::PushI64(n) => self.stack.push(Value::I64(n)),
+                OpCode::PushIsize(n) => self.stack.push(Value::Isize(n)),
+                OpCode::PushU8(n) => self.stack.push(Value::U8(n)),
+                OpCode::PushU16(n) => self.stack.push(Value::U16(n)),
+                OpCode::PushU32(n) => self.stack.push(Value::U32(n)),
+                OpCode::PushU64(n) => self.stack.push(Value::U64(n)),
+                OpCode::PushUsize(n) => self.stack.push(Value::Usize(n)),
+                OpCode::PushF16(n) => self.stack.push(Value::F16(n)),
+                OpCode::PushF32(n) => self.stack.push(Value::F32(n)),
+                OpCode::PushF64(n) => self.stack.push(Value::F64(n)),
 
                 OpCode::Pop => {
                     self.stack.pop();
@@ -204,6 +281,7 @@ impl VM {
 
                     let res = match (lhs, rhs, &op) {
                         (Value::Int(a), Value::Int(b), OpCode::Eq) => Value::Bool(a == b),
+                        (Value::Bool(a), Value::Bool(b), OpCode::Eq) => Value::Bool(a == b),
 
                         (Value::Int(a), Value::Int(b), OpCode::Lt) => Value::Bool(a < b),
                         (Value::Int(a), Value::Int(b), OpCode::Geq) => Value::Bool(a >= b),
@@ -211,7 +289,7 @@ impl VM {
                         (Value::Int(a), Value::Int(b), OpCode::Gt) => Value::Bool(a > b),
                         (Value::Int(a), Value::Int(b), OpCode::Leq) => Value::Bool(a <= b),
 
-                        _ => return Err("Comparison requires Integers".to_string()),
+                        _ => return Err("Comparison mismatch".to_string()),
                     };
                     self.stack.push(res);
                 }
@@ -259,20 +337,21 @@ impl VM {
                     }
                 }
 
-                OpCode::MakeClosure { addr, param } => {
-                    // Flatten the current environment for the closure
-                    // (Take the top of every stack)
+                OpCode::MakeClosure {
+                    addr,
+                    param,
+                    captures,
+                } => {
                     let mut flat_env = HashMap::new();
-                    let current_locals = if let Some(frame) = self.frames.last() {
-                        &frame.locals
-                    } else {
-                        // Empty map if no frame (shouldn't happen in this logic but safe to handle)
-                        return Err("Closure created outside frame context".into());
-                    };
-
-                    for (k, v_vec) in current_locals {
-                        if let Some(top_val) = v_vec.last() {
-                            flat_env.insert(k.clone(), top_val.clone());
+                    if let Some(frame) = self.frames.last() {
+                        for cap_name in captures {
+                            if let Some(vals) = frame.locals.get(&cap_name) {
+                                if let Some(val) = vals.last() {
+                                    flat_env.insert(cap_name.clone(), val.clone());
+                                }
+                            }
+                            // If not in locals, could be global, but globals are accessible anyway.
+                            // We only capture locals.
                         }
                     }
 
@@ -287,12 +366,15 @@ impl VM {
                     addr,
                     param,
                     rec_name,
+                    captures,
                 } => {
                     let mut flat_env = HashMap::new();
                     if let Some(frame) = self.frames.last() {
-                        for (k, v_vec) in &frame.locals {
-                            if let Some(top_val) = v_vec.last() {
-                                flat_env.insert(k.clone(), top_val.clone());
+                        for cap_name in captures {
+                            if let Some(vals) = frame.locals.get(&cap_name) {
+                                if let Some(val) = vals.last() {
+                                    flat_env.insert(cap_name.clone(), val.clone());
+                                }
                             }
                         }
                     }
@@ -359,6 +441,19 @@ impl VM {
                     }
                     // We don't pop globals in this language
                 }
+
+                OpCode::Assert => {
+                    let val = self.stack.pop().ok_or("Stack underflow")?;
+                    match val {
+                        Value::Bool(true) => {
+                            self.stack.push(Value::Bool(true));
+                        }
+                        Value::Bool(false) => {
+                            return Err(format!("Assertion failed at IP:{}", self.ip - 1));
+                        }
+                        _ => return Err("Assert requires boolean".to_string()),
+                    }
+                }
             }
         }
 
@@ -368,20 +463,142 @@ impl VM {
     }
 
     fn binary_op(&self, lhs: Value, rhs: Value, op: &OpCode) -> Result<Value, String> {
-        match (lhs, rhs, op) {
-            (Value::Int(a), Value::Int(b), OpCode::Add) => Ok(Value::Int(a + b)),
-            (Value::Int(a), Value::Int(b), OpCode::Sub) => Ok(Value::Int(a - b)),
-            (Value::Int(a), Value::Int(b), OpCode::Mul) => Ok(Value::Int(a * b)),
+        let res = match (lhs, rhs, op) {
+            // BigInt
+            (Value::Int(a), Value::Int(b), OpCode::Add) => Value::Int(a + b),
+            (Value::Int(a), Value::Int(b), OpCode::Sub) => Value::Int(a - b),
+            (Value::Int(a), Value::Int(b), OpCode::Mul) => Value::Int(a * b),
             (Value::Int(a), Value::Int(b), OpCode::Div) => {
-                if b == 0 {
-                    Err("Division by zero".to_string())
-                } else {
-                    Ok(Value::Int(a / b))
+                let zero = BigInt::from(0);
+                if b == zero {
+                    return Err("Division by zero".to_string());
                 }
+                Value::Int(a / b)
             }
-            _ => Err("Type mismatch or invalid operator".to_string()),
-        }
+            // Strict Primitive Arithmetic (Macros would be cleaner, but expanding for clarity)
+            // I8
+            (Value::I8(a), Value::I8(b), OpCode::Add) => Value::I8(a.wrapping_add(b)),
+            (Value::I8(a), Value::I8(b), OpCode::Sub) => Value::I8(a.wrapping_sub(b)),
+            (Value::I8(a), Value::I8(b), OpCode::Mul) => Value::I8(a.wrapping_mul(b)),
+            (Value::I8(a), Value::I8(b), OpCode::Div) => {
+                if b == 0 {
+                    return Err("Div by zero".into());
+                }
+                Value::I8(a.wrapping_div(b))
+            }
+            // I16
+            (Value::I16(a), Value::I16(b), OpCode::Add) => Value::I16(a.wrapping_add(b)),
+            (Value::I16(a), Value::I16(b), OpCode::Sub) => Value::I16(a.wrapping_sub(b)),
+            (Value::I16(a), Value::I16(b), OpCode::Mul) => Value::I16(a.wrapping_mul(b)),
+            (Value::I16(a), Value::I16(b), OpCode::Div) => {
+                if b == 0 {
+                    return Err("Div by zero".into());
+                }
+                Value::I16(a.wrapping_div(b))
+            }
+            // I32
+            (Value::I32(a), Value::I32(b), OpCode::Add) => Value::I32(a.wrapping_add(b)),
+            (Value::I32(a), Value::I32(b), OpCode::Sub) => Value::I32(a.wrapping_sub(b)),
+            (Value::I32(a), Value::I32(b), OpCode::Mul) => Value::I32(a.wrapping_mul(b)),
+            (Value::I32(a), Value::I32(b), OpCode::Div) => {
+                if b == 0 {
+                    return Err("Div by zero".into());
+                }
+                Value::I32(a.wrapping_div(b))
+            }
+            // I64
+            (Value::I64(a), Value::I64(b), OpCode::Add) => Value::I64(a.wrapping_add(b)),
+            (Value::I64(a), Value::I64(b), OpCode::Sub) => Value::I64(a.wrapping_sub(b)),
+            (Value::I64(a), Value::I64(b), OpCode::Mul) => Value::I64(a.wrapping_mul(b)),
+            (Value::I64(a), Value::I64(b), OpCode::Div) => {
+                if b == 0 {
+                    return Err("Div by zero".into());
+                }
+                Value::I64(a.wrapping_div(b))
+            }
+            // Isize
+            (Value::Isize(a), Value::Isize(b), OpCode::Add) => Value::Isize(a.wrapping_add(b)),
+            (Value::Isize(a), Value::Isize(b), OpCode::Sub) => Value::Isize(a.wrapping_sub(b)),
+            (Value::Isize(a), Value::Isize(b), OpCode::Mul) => Value::Isize(a.wrapping_mul(b)),
+            (Value::Isize(a), Value::Isize(b), OpCode::Div) => {
+                if b == 0 {
+                    return Err("Div by zero".into());
+                }
+                Value::Isize(a.wrapping_div(b))
+            }
+
+            // U8
+            (Value::U8(a), Value::U8(b), OpCode::Add) => Value::U8(a.wrapping_add(b)),
+            (Value::U8(a), Value::U8(b), OpCode::Sub) => Value::U8(a.wrapping_sub(b)),
+            (Value::U8(a), Value::U8(b), OpCode::Mul) => Value::U8(a.wrapping_mul(b)),
+            (Value::U8(a), Value::U8(b), OpCode::Div) => {
+                if b == 0 {
+                    return Err("Div by zero".into());
+                }
+                Value::U8(a.wrapping_div(b))
+            }
+            // U16
+            (Value::U16(a), Value::U16(b), OpCode::Add) => Value::U16(a.wrapping_add(b)),
+            (Value::U16(a), Value::U16(b), OpCode::Sub) => Value::U16(a.wrapping_sub(b)),
+            (Value::U16(a), Value::U16(b), OpCode::Mul) => Value::U16(a.wrapping_mul(b)),
+            (Value::U16(a), Value::U16(b), OpCode::Div) => {
+                if b == 0 {
+                    return Err("Div by zero".into());
+                }
+                Value::U16(a.wrapping_div(b))
+            }
+            // U32
+            (Value::U32(a), Value::U32(b), OpCode::Add) => Value::U32(a.wrapping_add(b)),
+            (Value::U32(a), Value::U32(b), OpCode::Sub) => Value::U32(a.wrapping_sub(b)),
+            (Value::U32(a), Value::U32(b), OpCode::Mul) => Value::U32(a.wrapping_mul(b)),
+            (Value::U32(a), Value::U32(b), OpCode::Div) => {
+                if b == 0 {
+                    return Err("Div by zero".into());
+                }
+                Value::U32(a.wrapping_div(b))
+            }
+            // U64
+            (Value::U64(a), Value::U64(b), OpCode::Add) => Value::U64(a.wrapping_add(b)),
+            (Value::U64(a), Value::U64(b), OpCode::Sub) => Value::U64(a.wrapping_sub(b)),
+            (Value::U64(a), Value::U64(b), OpCode::Mul) => Value::U64(a.wrapping_mul(b)),
+            (Value::U64(a), Value::U64(b), OpCode::Div) => {
+                if b == 0 {
+                    return Err("Div by zero".into());
+                }
+                Value::U64(a.wrapping_div(b))
+            }
+            // Usize
+            (Value::Usize(a), Value::Usize(b), OpCode::Add) => Value::Usize(a.wrapping_add(b)),
+            (Value::Usize(a), Value::Usize(b), OpCode::Sub) => Value::Usize(a.wrapping_sub(b)),
+            (Value::Usize(a), Value::Usize(b), OpCode::Mul) => Value::Usize(a.wrapping_mul(b)),
+            (Value::Usize(a), Value::Usize(b), OpCode::Div) => {
+                if b == 0 {
+                    return Err("Div by zero".into());
+                }
+                Value::Usize(a.wrapping_div(b))
+            }
+
+            // Floats (F16 stored as F32)
+            (Value::F16(a), Value::F16(b), OpCode::Add) => Value::F16(a + b),
+            (Value::F16(a), Value::F16(b), OpCode::Sub) => Value::F16(a - b),
+            (Value::F16(a), Value::F16(b), OpCode::Mul) => Value::F16(a * b),
+            (Value::F16(a), Value::F16(b), OpCode::Div) => Value::F16(a / b),
+            // F32
+            (Value::F32(a), Value::F32(b), OpCode::Add) => Value::F32(a + b),
+            (Value::F32(a), Value::F32(b), OpCode::Sub) => Value::F32(a - b),
+            (Value::F32(a), Value::F32(b), OpCode::Mul) => Value::F32(a * b),
+            (Value::F32(a), Value::F32(b), OpCode::Div) => Value::F32(a / b),
+            // F64
+            (Value::F64(a), Value::F64(b), OpCode::Add) => Value::F64(a + b),
+            (Value::F64(a), Value::F64(b), OpCode::Sub) => Value::F64(a - b),
+            (Value::F64(a), Value::F64(b), OpCode::Mul) => Value::F64(a * b),
+            (Value::F64(a), Value::F64(b), OpCode::Div) => Value::F64(a / b),
+
+            _ => return Err("Type mismatch or invalid operator".to_string()),
+        };
+        Ok(res)
     }
+
     pub fn debug_run(&mut self) -> Result<Value, String> {
         // Ensure we halt at the end
         if !matches!(self.code.last(), Some(OpCode::Halt)) {
@@ -416,70 +633,62 @@ impl VM {
             println!();
             // ----------------
 
-            self.ip += 1;
+            self.ip += 1; // Advance IP
 
             match op {
                 OpCode::Halt => break,
 
                 OpCode::PushInt(n) => self.stack.push(Value::Int(n)),
                 OpCode::PushBool(b) => self.stack.push(Value::Bool(b)),
+                OpCode::PushI8(n) => self.stack.push(Value::I8(n)),
+                OpCode::PushI16(n) => self.stack.push(Value::I16(n)),
+                OpCode::PushI32(n) => self.stack.push(Value::I32(n)),
+                OpCode::PushI64(n) => self.stack.push(Value::I64(n)),
+                OpCode::PushIsize(n) => self.stack.push(Value::Isize(n)),
+                OpCode::PushU8(n) => self.stack.push(Value::U8(n)),
+                OpCode::PushU16(n) => self.stack.push(Value::U16(n)),
+                OpCode::PushU32(n) => self.stack.push(Value::U32(n)),
+                OpCode::PushU64(n) => self.stack.push(Value::U64(n)),
+                OpCode::PushUsize(n) => self.stack.push(Value::Usize(n)),
+                OpCode::PushF16(n) => self.stack.push(Value::F16(n)),
+                OpCode::PushF32(n) => self.stack.push(Value::F32(n)),
+                OpCode::PushF64(n) => self.stack.push(Value::F64(n)),
 
                 OpCode::Pop => {
                     self.stack.pop();
                 }
 
-                // Arithmetic
-                OpCode::Add => {
+                // Arithmetic (Use binary_op)
+                OpCode::Add | OpCode::Sub | OpCode::Mul | OpCode::Div => {
                     let b = self.stack.pop().ok_or("Stack underflow")?;
                     let a = self.stack.pop().ok_or("Stack underflow")?;
-                    match (a, b) {
-                        (Value::Int(x), Value::Int(y)) => self.stack.push(Value::Int(x + y)),
-                        _ => return Err("Type mismatch Add".into()),
-                    }
+                    let res = self.binary_op(a, b, &op)?;
+                    self.stack.push(res);
                 }
-                OpCode::Sub => {
-                    let b = self.stack.pop().ok_or("Stack underflow")?;
-                    let a = self.stack.pop().ok_or("Stack underflow")?;
-                    match (a, b) {
-                        (Value::Int(x), Value::Int(y)) => self.stack.push(Value::Int(x - y)),
-                        _ => return Err("Type mismatch Sub".into()),
-                    }
-                }
-                OpCode::Mul => {
-                    let b = self.stack.pop().ok_or("Stack underflow")?;
-                    let a = self.stack.pop().ok_or("Stack underflow")?;
-                    match (a, b) {
-                        (Value::Int(x), Value::Int(y)) => self.stack.push(Value::Int(x * y)),
-                        _ => return Err("Type mismatch Mul".into()),
-                    }
-                }
-                OpCode::Div => {
-                    let b = self.stack.pop().ok_or("Stack underflow")?;
-                    let a = self.stack.pop().ok_or("Stack underflow")?;
-                    match (a, b) {
-                        (Value::Int(x), Value::Int(y)) => {
-                            if y == 0 {
-                                return Err("Div by zero".into());
-                            }
-                            self.stack.push(Value::Int(x / y));
-                        }
-                        _ => return Err("Type mismatch Div".into()),
-                    }
-                }
+
+                // Logic (Use binary_op later or keep inline if specific)
                 OpCode::Eq | OpCode::Lt | OpCode::Gt | OpCode::Leq | OpCode::Geq => {
                     let rhs = self.stack.pop().ok_or("Stack underflow")?;
                     let lhs = self.stack.pop().ok_or("Stack underflow")?;
 
-                    let res = match (lhs, rhs, &op) {
+                    let res = match (&lhs, &rhs, &op) {
                         (Value::Int(a), Value::Int(b), OpCode::Eq) => Value::Bool(a == b),
-
+                        (Value::Bool(a), Value::Bool(b), OpCode::Eq) => Value::Bool(a == b),
+                        // Primitives Eq
+                        (Value::I32(a), Value::I32(b), OpCode::Eq) => Value::Bool(a == b),
+                        (Value::F64(a), Value::F64(b), OpCode::Eq) => Value::Bool(a == b),
+                        // TODO: All primitives
                         (Value::Int(a), Value::Int(b), OpCode::Lt) => Value::Bool(a < b),
                         (Value::Int(a), Value::Int(b), OpCode::Geq) => Value::Bool(a >= b),
-
                         (Value::Int(a), Value::Int(b), OpCode::Gt) => Value::Bool(a > b),
                         (Value::Int(a), Value::Int(b), OpCode::Leq) => Value::Bool(a <= b),
 
-                        _ => return Err("Comparison requires Integers".to_string()),
+                        _ => {
+                            return Err(format!(
+                                "Comparison mismatch or unsupported types: {:?} {:?}",
+                                lhs, rhs
+                            ));
+                        }
                     };
                     self.stack.push(res);
                 }
@@ -536,13 +745,19 @@ impl VM {
                 }
 
                 // Functions
-                OpCode::MakeClosure { addr, param } => {
+                OpCode::MakeClosure {
+                    addr,
+                    param,
+                    captures,
+                } => {
                     let mut flat_env = HashMap::new();
                     // Capture from current frame
                     if let Some(frame) = self.frames.last() {
-                        for (k, v_vec) in &frame.locals {
-                            if let Some(top_val) = v_vec.last() {
-                                flat_env.insert(k.clone(), top_val.clone());
+                        for cap_name in captures {
+                            if let Some(vals) = frame.locals.get(&cap_name) {
+                                if let Some(val) = vals.last() {
+                                    flat_env.insert(cap_name.clone(), val.clone());
+                                }
                             }
                         }
                     }
@@ -553,17 +768,19 @@ impl VM {
                         rec_name: None,
                     });
                 }
-
                 OpCode::MakeRecursiveClosure {
                     addr,
                     param,
                     rec_name,
+                    captures,
                 } => {
                     let mut flat_env = HashMap::new();
                     if let Some(frame) = self.frames.last() {
-                        for (k, v_vec) in &frame.locals {
-                            if let Some(top_val) = v_vec.last() {
-                                flat_env.insert(k.clone(), top_val.clone());
+                        for cap_name in captures {
+                            if let Some(vals) = frame.locals.get(&cap_name) {
+                                if let Some(val) = vals.last() {
+                                    flat_env.insert(cap_name.clone(), val.clone());
+                                }
                             }
                         }
                     }
@@ -614,6 +831,22 @@ impl VM {
                         self.ip = frame.return_ip;
                     } else {
                         break;
+                    }
+                }
+                OpCode::Assert => {
+                    let val = self.stack.pop().ok_or("Stack underflow")?;
+                    match val {
+                        Value::Bool(true) => {
+                            // Pass
+                            // Should we push true back?
+                            // If `assert x` is an expression, it needs a value.
+                            // In Checker we return Bool. So let's push true.
+                            self.stack.push(Value::Bool(true));
+                        }
+                        Value::Bool(false) => {
+                            return Err(format!("Assertion failed at IP:{}", self.ip - 1));
+                        }
+                        _ => return Err("Assert requires boolean".to_string()),
                     }
                 }
             }

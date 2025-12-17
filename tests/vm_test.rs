@@ -1,9 +1,15 @@
 #[cfg(test)]
 mod tests {
+    use arith::vm::core::Value;
     // Import your parser function
-    use arith::syntax::parser::{parse, parser};
-    use arith::vm::core::{VM, Value};
+    use arith::vm::core::VM;
     use arith::vm::trans_ast_bytecode::Compiler;
+    use num_bigint::BigInt;
+
+    fn val_int(n: i64) -> Value {
+        Value::Int(BigInt::from(n))
+    }
+    use arith::syntax::parser::{parse, parser};
     use chumsky::Parser;
 
     /// Helper function to compile and run a string of source code.
@@ -28,8 +34,8 @@ mod tests {
 
     #[test]
     fn test_integers() {
-        assert_eq!(run("123"), Value::Int(123));
-        assert_eq!(run("0"), Value::Int(0));
+        assert_eq!(run("123"), val_int(123));
+        assert_eq!(run("0"), val_int(0));
     }
 
     #[test]
@@ -40,10 +46,10 @@ mod tests {
 
     #[test]
     fn test_basic_arithmetic() {
-        assert_eq!(run("1 + 2"), Value::Int(3));
-        assert_eq!(run("10 - 4"), Value::Int(6));
-        assert_eq!(run("3 * 4"), Value::Int(12));
-        assert_eq!(run("20 / 5"), Value::Int(4));
+        assert_eq!(run("1 + 2"), val_int(3));
+        assert_eq!(run("10 - 4"), val_int(6));
+        assert_eq!(run("3 * 4"), val_int(12));
+        assert_eq!(run("20 / 5"), val_int(4));
     }
 
     // ========================================================================
@@ -54,21 +60,21 @@ mod tests {
     fn test_precedence() {
         // Multiplication (*) has higher precedence than Addition (+)
         // Should be 1 + (2 * 3) = 7, not (1 + 2) * 3 = 9
-        assert_eq!(run("1 + 2 * 3"), Value::Int(7));
+        assert_eq!(run("1 + 2 * 3"), val_int(7));
 
         // Parentheses override precedence
-        assert_eq!(run("(1 + 2) * 3"), Value::Int(9));
+        assert_eq!(run("(1 + 2) * 3"), val_int(9));
     }
 
     #[test]
     fn test_associativity() {
         // Subtraction should be left-associative
         // (10 - 5) - 2 = 3, NOT 10 - (5 - 2) = 7
-        assert_eq!(run("10 - 5 - 2"), Value::Int(3));
+        assert_eq!(run("10 - 5 - 2"), val_int(3));
 
         // Division should be left-associative
         // (20 / 2) / 2 = 5, NOT 20 / (2 / 2) = 20
-        assert_eq!(run("20 / 2 / 2"), Value::Int(5));
+        assert_eq!(run("20 / 2 / 2"), val_int(5));
     }
 
     // ========================================================================
@@ -77,8 +83,8 @@ mod tests {
 
     #[test]
     fn test_if_expression() {
-        assert_eq!(run("if true then 10 else 20"), Value::Int(10));
-        assert_eq!(run("if false then 10 else 20"), Value::Int(20));
+        assert_eq!(run("if true then 10 else 20"), val_int(10));
+        assert_eq!(run("if false then 10 else 20"), val_int(20));
     }
 
     #[test]
@@ -88,22 +94,22 @@ mod tests {
             else if true then 2
             else 3
         ";
-        assert_eq!(run(src), Value::Int(2));
+        assert_eq!(run(src), val_int(2));
     }
 
     #[test]
     fn test_expression_inside_if() {
         // Conditions can be expressions, branches can be calculations
         println!("a");
-        // assert_eq!(run("if 10 - 5 * 2 + 1 then 100 else 200"), Value::Int(100)); // 1 is treated as true if strict bool checks aren't enforced, else use true
+        // assert_eq!(run("if 10 - 5 * 2 + 1 then 100 else 200"), val_int(100)); // 1 is treated as true if strict bool checks aren't enforced, else use true
         // If your language enforces strict bools in 'if':
 
         println!("a");
-        // assert_eq!(run("if (1 + 1) * 5 - 10 then 1 else 0"), Value::Int(0)); // Assuming non-zero is true?
+        // assert_eq!(run("if (1 + 1) * 5 - 10 then 1 else 0"), val_int(0)); // Assuming non-zero is true?
         // Or if strictly bool:
         println!("a");
 
-        assert_eq!(run("if true then 1 + 1 else 2 * 2"), Value::Int(2));
+        assert_eq!(run("if true then 1 + 1 else 2 * 2"), val_int(2));
     }
 
     // ========================================================================
@@ -113,7 +119,7 @@ mod tests {
     #[test]
     fn test_let_binding() {
         let src = "let x = 10 in x + 5";
-        assert_eq!(run(src), Value::Int(15));
+        assert_eq!(run(src), val_int(15));
     }
 
     #[test]
@@ -123,7 +129,7 @@ mod tests {
             let y = 5 in
             x + y
         ";
-        assert_eq!(run(src), Value::Int(15));
+        assert_eq!(run(src), val_int(15));
     }
 
     #[test]
@@ -134,7 +140,7 @@ mod tests {
             let x = 20 in
             x
         ";
-        assert_eq!(run(src), Value::Int(20));
+        assert_eq!(run(src), val_int(20));
     }
 
     #[test]
@@ -149,7 +155,7 @@ mod tests {
         // Inner `let x = 5 in x` evaluates to 5.
         // Outer `x` is still 10.
         // Result: 5 + 10 = 15.
-        assert_eq!(run(src), Value::Int(15));
+        assert_eq!(run(src), val_int(15));
     }
 
     // ========================================================================
@@ -161,14 +167,14 @@ mod tests {
         // Apply immediate lambda
         // Syntax: (.\ x : Int -> x + 1) 10
         let src = "( .\\ x : Int -> x + 1 ) 10";
-        assert_eq!(run(src), Value::Int(11));
+        assert_eq!(run(src), val_int(11));
     }
 
     #[test]
     fn test_higher_order_types_syntax() {
         // Test that the parser handles complex types, even if the VM ignores them
         let src = "( .\\ x : Vector<Int, 10> -> 1 ) 0";
-        assert_eq!(run(src), Value::Int(1));
+        assert_eq!(run(src), val_int(1));
     }
 
     #[test]
@@ -182,7 +188,7 @@ mod tests {
             addX 5
         ";
         // `addX` captures `x = 10`. When called with 5, it should do 10 + 5.
-        assert_eq!(run(src), Value::Int(15));
+        assert_eq!(run(src), val_int(15));
     }
 
     #[test]
@@ -193,7 +199,7 @@ mod tests {
             let add5 = makeAdder 5 in
             add5 10
         ";
-        assert_eq!(run(src), Value::Int(15));
+        assert_eq!(run(src), val_int(15));
     }
 
     #[test]
@@ -205,7 +211,7 @@ mod tests {
             let double = .\\ n : Int -> n * 2 in
             apply double 10
         ";
-        assert_eq!(run(src), Value::Int(20));
+        assert_eq!(run(src), val_int(20));
     }
 
     // ========================================================================
@@ -226,7 +232,7 @@ mod tests {
         // calc true = 5 + 10 = 15
         // calc false = 5 * 10 = 50
         // Result = 15 + 50 = 65
-        assert_eq!(run(src), Value::Int(65));
+        assert_eq!(run(src), val_int(65));
     }
 
     // ========================================================================
@@ -283,7 +289,7 @@ mod tests {
             let isBig = 100 > 50 in
             if isBig then 1 else 0
         ";
-        assert_eq!(run(src), Value::Int(1));
+        assert_eq!(run(src), val_int(1));
     }
 
     #[test]
@@ -296,7 +302,7 @@ mod tests {
                 if x < 10 then 1 else 0
             else 0
         ";
-        assert_eq!(run(src_pass), Value::Int(1));
+        assert_eq!(run(src_pass), val_int(1));
 
         // Input: 15 (Should be 0)
         let src_fail_high = "
@@ -305,7 +311,7 @@ mod tests {
                 if x < 10 then 1 else 0
             else 0
         ";
-        assert_eq!(run(src_fail_high), Value::Int(0));
+        assert_eq!(run(src_fail_high), val_int(0));
 
         // Input: -5 (Should be 0)
         let src_fail_low = "
@@ -314,7 +320,7 @@ mod tests {
                 if x < 10 then 1 else 0
             else 0
         ";
-        assert_eq!(run(src_fail_low), Value::Int(0));
+        assert_eq!(run(src_fail_low), val_int(0));
     }
 
     #[test]
@@ -324,13 +330,13 @@ mod tests {
             let isPos = .\\ n : Int -> n > 0 in
             if isPos 5 then 1 else 0
         ";
-        assert_eq!(run(src), Value::Int(1));
+        assert_eq!(run(src), val_int(1));
 
         let src_neg = "
             let isPos = .\\ n : Int -> n > 0 in
             if isPos (0-2) then 1 else 0
         ";
-        assert_eq!(run(src_neg), Value::Int(0));
+        assert_eq!(run(src_neg), val_int(0));
     }
 
     // ========================================================================

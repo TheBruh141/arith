@@ -6,13 +6,35 @@ use chumsky::prelude::*;
 pub fn parser() -> impl Parser<Token, Spanned<Expr>, Error = Simple<Token>> {
     // --- Primitives ---
     let ident = select! { Token::Ident(id) => id };
-    let int_lit = select! { Token::Num(n) => n };
 
-    // --- Type Parsing (Unchanged logic, just organization) ---
-    // Note: TypeExpr and Type are not spanned in this example to keep it focused,
-    // but in a full compiler you would span these too.
+    // Updated int_lit to handle BigInt stored as String and primitives
+    let lit_expr = select! {
+        Token::LitInt(s) => Expr::Int(s),
+        Token::LitI8(n) => Expr::LitI8(n),
+        Token::LitI16(n) => Expr::LitI16(n),
+        Token::LitI32(n) => Expr::LitI32(n),
+        Token::LitI64(n) => Expr::LitI64(n),
+        Token::LitIsize(n) => Expr::LitIsize(n),
+        Token::LitU8(n) => Expr::LitU8(n),
+        Token::LitU16(n) => Expr::LitU16(n),
+        Token::LitU32(n) => Expr::LitU32(n),
+        Token::LitU64(n) => Expr::LitU64(n),
+        Token::LitUsize(n) => Expr::LitUsize(n),
+        Token::LitF16(s) => Expr::LitF16(s.parse().unwrap_or(0.0)),
+        Token::LitF32(s) => Expr::LitF32(s.parse().unwrap_or(0.0)),
+        Token::LitF64(s) => Expr::LitF64(s.parse().unwrap_or(0.0)),
+        Token::True => Expr::Bool(true),
+        Token::False => Expr::Bool(false),
+    };
+
+    // For type expressions, we only support LitInt (i64 in legacy check) or we need to update TypeExpr too.
+    // Legacy TypeExpr::Lit(i64) is inconsistent with new BigInt literals.
+    // Let's special case LitInt for TypeExpr to parse as i64.
+    let type_int_lit = select! { Token::LitInt(s) => s.parse::<i64>().unwrap_or(0) };
+
+    // --- Type Parsing ---
     let type_expr = recursive(|type_expr| {
-        let atom = int_lit
+        let atom = type_int_lit
             .map(TypeExpr::Lit)
             .or(ident.map(TypeExpr::Var))
             .or(type_expr.delimited_by(just(Token::LParen), just(Token::RParen)));
@@ -32,6 +54,20 @@ pub fn parser() -> impl Parser<Token, Spanned<Expr>, Error = Simple<Token>> {
         let base = just(Token::TInt)
             .to(Type::Int)
             .or(just(Token::TBool).to(Type::Bool))
+            // Primitives
+            .or(just(Token::Ti8).to(Type::I8))
+            .or(just(Token::Ti16).to(Type::I16))
+            .or(just(Token::Ti32).to(Type::I32))
+            .or(just(Token::Ti64).to(Type::I64))
+            .or(just(Token::Tisize).to(Type::Isize))
+            .or(just(Token::Tu8).to(Type::U8))
+            .or(just(Token::Tu16).to(Type::U16))
+            .or(just(Token::Tu32).to(Type::U32))
+            .or(just(Token::Tu64).to(Type::U64))
+            .or(just(Token::Tusize).to(Type::Usize))
+            .or(just(Token::Tf16).to(Type::F16))
+            .or(just(Token::Tf32).to(Type::F32))
+            .or(just(Token::Tf64).to(Type::F64))
             .or(just(Token::TVector)
                 .ignore_then(
                     type_def
@@ -56,10 +92,8 @@ pub fn parser() -> impl Parser<Token, Spanned<Expr>, Error = Simple<Token>> {
 
     // --- Expression Parsing ---
     recursive(|expr| {
-        let lit = int_lit
-            .map(Expr::Int)
-            .or(just(Token::True).to(Expr::Bool(true)))
-            .or(just(Token::False).to(Expr::Bool(false)));
+        // Use the unified literal parser
+        let lit = lit_expr.clone();
 
         // 1. Atoms: Wrap result in Spanned::new using map_with_span
         let atom = lit
@@ -164,7 +198,15 @@ pub fn parser() -> impl Parser<Token, Spanned<Expr>, Error = Simple<Token>> {
                 )
             });
 
-        lambda.or(let_expr).or(if_expr).or(comparison)
+        let assert_expr = just(Token::Assert)
+            .ignore_then(expr.clone())
+            .map_with_span(|e, span| Spanned::new(Expr::Assert(Box::new(e)), span));
+
+        lambda
+            .or(let_expr)
+            .or(if_expr)
+            .or(assert_expr)
+            .or(comparison)
     })
 }
 
@@ -182,8 +224,20 @@ pub fn parse(input: &str) -> Result<Spanned<Expr>, Vec<CompileErr>> {
 
     let eof = input.len()..input.len();
 
+    let eof = input.len()..input.len();
+
+    // Support sequence of expressions separated by optional semicolons
     parser()
+        .separated_by(just(Token::Semi))
+        .allow_trailing()
         .then_ignore(end())
+        .map_with_span(|mut exprs, span| {
+            if exprs.len() == 1 {
+                exprs.remove(0)
+            } else {
+                Spanned::new(Expr::Block(exprs), span)
+            }
+        })
         .parse(chumsky::Stream::from_iter(eof, tokens.into_iter()))
         .map_err(|errs| {
             errs.into_iter()

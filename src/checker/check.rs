@@ -35,6 +35,20 @@ pub fn check_expr(ctx: &Context, expr: &Spanned<Expr>) -> CompileResult<Type> {
         Expr::Int(_) => Ok(Type::Int),
         Expr::Bool(_) => Ok(Type::Bool),
 
+        Expr::LitU8(_) => Ok(Type::U8),
+        Expr::LitU16(_) => Ok(Type::U16),
+        Expr::LitU32(_) => Ok(Type::U32),
+        Expr::LitU64(_) => Ok(Type::U64),
+        Expr::LitUsize(_) => Ok(Type::Usize),
+        Expr::LitI8(_) => Ok(Type::I8),
+        Expr::LitI16(_) => Ok(Type::I16),
+        Expr::LitI32(_) => Ok(Type::I32),
+        Expr::LitI64(_) => Ok(Type::I64),
+        Expr::LitIsize(_) => Ok(Type::Isize),
+        Expr::LitF16(_) => Ok(Type::F16),
+        Expr::LitF32(_) => Ok(Type::F32),
+        Expr::LitF64(_) => Ok(Type::F64),
+
         Expr::Var(name) => ctx
             .get(name)
             .cloned()
@@ -76,26 +90,8 @@ pub fn check_expr(ctx: &Context, expr: &Spanned<Expr>) -> CompileResult<Type> {
             let l_ty = check_expr(ctx, lhs)?;
             let r_ty = check_expr(ctx, rhs)?;
 
-            let (expected_ty, out_ty) = match op {
-                BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div => {
-                    (Type::Int, Type::Int)
-                }
-                BinaryOp::Equals
-                | BinaryOp::LessThan
-                | BinaryOp::GreaterThan
-                | BinaryOp::LessThanEquals
-                | BinaryOp::GreaterThanEquals => (Type::Int, Type::Bool), // For now, only compare ints
-            };
-
-            unify(&l_ty, &expected_ty).map_err(|(found_operand_type, expected_operand_type)| {
-                CompileErr::BinaryOpMismatch {
-                    span: lhs.span.clone(),
-                    op: op.clone(),
-                    expected_operand_type,
-                    found_operand_type,
-                }
-            })?;
-            unify(&r_ty, &expected_ty).map_err(|(found_operand_type, expected_operand_type)| {
+            // 1. Enforce strict equality of operands (no implicit casting)
+            unify(&r_ty, &l_ty).map_err(|(found_operand_type, expected_operand_type)| {
                 CompileErr::BinaryOpMismatch {
                     span: rhs.span.clone(),
                     op: op.clone(),
@@ -104,7 +100,63 @@ pub fn check_expr(ctx: &Context, expr: &Spanned<Expr>) -> CompileResult<Type> {
                 }
             })?;
 
-            Ok(out_ty)
+            // 2. Validate that the type supports the operation
+            match op {
+                BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div => {
+                    match l_ty {
+                        Type::Int
+                        | Type::I8
+                        | Type::I16
+                        | Type::I32
+                        | Type::I64
+                        | Type::Isize
+                        | Type::U8
+                        | Type::U16
+                        | Type::U32
+                        | Type::U64
+                        | Type::Usize
+                        | Type::F16
+                        | Type::F32
+                        | Type::F64 => Ok(l_ty),
+                        _ => Err(CompileErr::BinaryOpMismatch {
+                            span: lhs.span.clone(),
+                            op: op.clone(),
+                            expected_operand_type: Type::Int, // TODO: Better error for "Expected Numeric"
+                            found_operand_type: l_ty,
+                        }),
+                    }
+                }
+                BinaryOp::Equals
+                | BinaryOp::LessThan
+                | BinaryOp::GreaterThan
+                | BinaryOp::LessThanEquals
+                | BinaryOp::GreaterThanEquals => {
+                    // For now, allow comparison on all primitives + Bool
+                    match l_ty {
+                        Type::Int
+                        | Type::I8
+                        | Type::I16
+                        | Type::I32
+                        | Type::I64
+                        | Type::Isize
+                        | Type::U8
+                        | Type::U16
+                        | Type::U32
+                        | Type::U64
+                        | Type::Usize
+                        | Type::F16
+                        | Type::F32
+                        | Type::F64
+                        | Type::Bool => Ok(Type::Bool),
+                        _ => Err(CompileErr::BinaryOpMismatch {
+                            span: lhs.span.clone(),
+                            op: op.clone(),
+                            expected_operand_type: Type::Int,
+                            found_operand_type: l_ty,
+                        }),
+                    }
+                }
+            }
         }
 
         Expr::Let(var, e1, e2) => {
@@ -161,6 +213,29 @@ pub fn check_expr(ctx: &Context, expr: &Spanned<Expr>) -> CompileResult<Type> {
                 }
             })?;
             Ok(t_then)
+        }
+
+        Expr::Assert(cond) => {
+            let t_cond = check_expr(ctx, cond)?;
+            unify(&t_cond, &Type::Bool).map_err(|(found_type, _)| CompileErr::TypeMismatch {
+                span: cond.span.clone(),
+                expected: Type::Bool,
+                found: found_type,
+            })?;
+            // verification successful
+            // Returns Unit/Bool? Since we don't have Unit, let's return Int(0) or Bool(true)
+            // Or add Type::Unit.
+            // For now, let's say it evaluates to the condition (Bool).
+            // For now, let's say it evaluates to the condition (Bool).
+            Ok(Type::Bool)
+        }
+
+        Expr::Block(exprs) => {
+            let mut ty = Type::Int; // Default (Unit-like?)
+            for e in exprs {
+                ty = check_expr(ctx, e)?;
+            }
+            Ok(ty)
         }
     }
 }
@@ -230,7 +305,10 @@ mod tests {
             0..0,
         );
         let app = Spanned::new(
-            Expr::App(Box::new(lam), Box::new(Spanned::new(Expr::Int(1), 0..0))),
+            Expr::App(
+                Box::new(lam),
+                Box::new(Spanned::new(Expr::Int("1".into()), 0..0)),
+            ),
             0..0,
         );
 
@@ -247,7 +325,7 @@ mod tests {
     fn arithmetic_type_error() {
         let e = Spanned::new(
             Expr::Binary(
-                Box::new(Spanned::new(Expr::Int(1), 0..0)),
+                Box::new(Spanned::new(Expr::Int("1".into()), 0..0)),
                 BinaryOp::Add,
                 Box::new(Spanned::new(Expr::Bool(true), 0..0)),
             ),
@@ -262,12 +340,12 @@ mod tests {
         let e = Spanned::new(
             Expr::Let(
                 "x".into(),
-                Box::new(Spanned::new(Expr::Int(1), 0..0)),
+                Box::new(Spanned::new(Expr::Int("1".into()), 0..0)),
                 Box::new(Spanned::new(
                     Expr::Binary(
                         Box::new(Spanned::new(Expr::Var("x".into()), 0..0)),
                         BinaryOp::Add,
-                        Box::new(Spanned::new(Expr::Int(2), 0..0)),
+                        Box::new(Spanned::new(Expr::Int("2".into()), 0..0)),
                     ),
                     0..0,
                 )),

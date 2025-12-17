@@ -1,0 +1,19 @@
+
+// Basic Assertion Test
+assert true;
+assert 1 < 2;
+assert 1 + 1 == 2;
+
+// Assert logic inside expressions (since assert returns bool)
+let x = if (assert true) then 1 else 0 in
+assert x == 1;
+
+// Assert in functions (self-contained)
+let check_pos = (.\n: Int -> assert n > 0) in
+check_pos 10;
+
+// This should NOT fail
+assert false == false
+
+// Uncommenting this should cause panic:
+// assert 1 == 2
