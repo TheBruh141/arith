@@ -1,0 +1,27 @@
+assert (1 + 1 == 2);
+assert (10 - 5 == 5);
+assert (3 * 4 == 12);
+assert (20 / 4 == 5);
+
+assert (true);
+assert (false == false);
+assert (true != false);
+assert ((true == true) == true);
+
+assert (10u8 + 20u8 == 30u8);
+assert (255u8 - 1u8 == 254u8);
+
+assert (10i32 + 20i32 == 30i32);
+assert (-10i32 + 20i32 == 10i32);
+
+assert (1.5f64 + 1.5f64 == 3.0f64);
+assert (2.0f64 * 3.0f64 == 6.0f64);
+assert (10.0f64 / 2.0f64 == 5.0f64);
+
+assert (10 > 5);
+assert (5 < 10);
+assert (10 >= 10);
+assert (5 <= 5);
+
+assert (1u8 < 2u8);
+assert (1.0f64 < 2.0f64);

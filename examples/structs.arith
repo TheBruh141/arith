@@ -1,0 +1,17 @@
+struct Point { x: Int, y: Int } in
+
+let p1 = Point { x: 10, y: 20 } in
+assert (p1.x == 10);
+assert (p1.y == 20);
+
+struct Line { start: Point, end: Point } in
+let p2 = Point { x: 100, y: 200 } in
+let l = Line { start: p1, end: p2 } in
+
+assert (l.start.x == 10);
+assert (l.end.y == 200);
+
+let rec sum_x = \line: Line ->
+  line.start.x + line.end.x
+in
+assert (sum_x l == 110);
