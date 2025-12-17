@@ -1,8 +1,8 @@
 use arith::syntax::parser::*;
+use arith::vm::core::VM;
 use arith::vm::trans_ast_bytecode::Compiler;
-use arith::vm::vm::VM;
-use chumsky::Parser;
-use criterion::{Criterion, black_box, criterion_group, criterion_main};
+use criterion::{Criterion, criterion_group, criterion_main};
+use std::hint::black_box;
 
 // Helper to generate a massive arithmetic string: "1 + 2 + 1 + 2 + ..."
 fn generate_huge_arithmetic(n: usize) -> String {
@@ -54,7 +54,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     group.bench_function("compile_arithmetic", |b| {
         b.iter(|| {
             let mut compiler = Compiler::new();
-            compiler.compile(black_box(&math_ast));
+            compiler.compile(black_box(&math_ast.node));
             compiler.code
         })
     });
@@ -62,7 +62,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     group.bench_function("compile_scope", |b| {
         b.iter(|| {
             let mut compiler = Compiler::new();
-            compiler.compile(black_box(&scope_ast));
+            compiler.compile(black_box(&scope_ast.node));
             compiler.code
         })
     });
@@ -75,11 +75,11 @@ pub fn criterion_benchmark(c: &mut Criterion) {
 
     // Pre-compile code so we only measure execution
     let mut c1 = Compiler::new();
-    c1.compile(&math_ast);
+    c1.compile(&math_ast.node);
     let math_code = c1.code;
 
     let mut c2 = Compiler::new();
-    c2.compile(&scope_ast);
+    c2.compile(&scope_ast.node);
     let scope_code = c2.code;
 
     // Bench 1: Heavy Arithmetic (Stack push/pop/add)

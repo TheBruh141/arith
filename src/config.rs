@@ -4,6 +4,8 @@ use std::ops::Range;
 use std::path::PathBuf;
 use std::{env, fs};
 
+type ConfigErr = Box<Report<'static, (&'static str, Range<usize>)>>;
+
 #[derive(Debug)]
 pub struct CompilerOptions {
     pub debug: bool,
@@ -40,39 +42,7 @@ impl CompilerOptions {
             print_bytecode: true,
         }
     }
-    fn from_args(args: &Args) -> Self {
-        // baseline defaults
-        let mut debug = false;
-        let mut print_ast = false;
-        let mut print_bytecode = false;
-
-        // debug applies first
-        if let Some(d) = args.debug {
-            debug = d;
-            print_ast = true;
-            print_bytecode = true;
-        }
-
-        // explicitly override
-        if let Some(pa) = args.print_ast {
-            print_ast = pa;
-        }
-
-        if let Some(pb) = args.print_bytecode {
-            print_bytecode = pb;
-        }
-
-        let print_ast_indent_size = args.print_ast_indent_size.unwrap_or(2);
-
-        Self {
-            debug,
-            print_ast,
-            print_ast_indent_size,
-            print_bytecode,
-        }
-    }
 }
-
 
 #[derive(Parser, Debug)]
 #[command(version = "0.0.2")]
@@ -108,8 +78,6 @@ pub struct Args {
     )]
     pub print_bytecode: Option<bool>,
 }
-
-
 
 // Holds the reconstructed command line and the spans of specific arguments.
 pub struct CliContext {
@@ -200,7 +168,7 @@ impl Args {
 
         opts
     }
-    pub fn check(&self, ctx: &CliContext) -> Result<(), Report<'_, (&'static str, Range<usize>)>> {
+    pub fn check(&self, ctx: &CliContext) -> Result<(), ConfigErr> {
         self.check_files_exist(ctx)?;
         self.check_file_extensions(ctx)?;
         self.check_nonempty_files(ctx)?;
@@ -208,16 +176,13 @@ impl Args {
         Ok(())
     }
 
-    fn check_files_exist(
-        &self,
-        ctx: &CliContext,
-    ) -> Result<(), Report<'_, (&'static str, Range<usize>)>> {
+    fn check_files_exist(&self, ctx: &CliContext) -> Result<(), ConfigErr> {
         for (i, file) in self.files.iter().enumerate() {
             if !file.exists() {
                 // Get the span from our context (defaults to 0..0 if logic missed it)
                 let span = ctx.arg_spans.get(i).cloned().unwrap_or(0..0);
 
-                return Err(
+                return Err(Box::new(
                     Report::build(ReportKind::Error, ("<command line>", span.clone()))
                         .with_message("File not found")
                         .with_label(
@@ -227,16 +192,13 @@ impl Args {
                         )
                         .with_note("Please check the path and try again.")
                         .finish(),
-                );
+                ));
             }
         }
         Ok(())
     }
 
-    fn check_file_extensions(
-        &self,
-        ctx: &CliContext,
-    ) -> Result<(), Report<'_, (&'static str, Range<usize>)>> {
+    fn check_file_extensions(&self, ctx: &CliContext) -> Result<(), ConfigErr> {
         for (i, file) in self.files.iter().enumerate() {
             let valid_ext = file
                 .extension()
@@ -244,7 +206,7 @@ impl Args {
 
             if !valid_ext {
                 let span = ctx.arg_spans.get(i).cloned().unwrap_or(0..0);
-                return Err(
+                return Err(Box::new(
                     Report::build(ReportKind::Error, ("<command line>", span.clone()))
                         .with_message("Invalid file extension")
                         .with_label(
@@ -253,23 +215,20 @@ impl Args {
                                 .with_color(Color::Yellow),
                         )
                         .finish(),
-                );
+                ));
             }
         }
         Ok(())
     }
 
-    fn check_nonempty_files(
-        &self,
-        ctx: &CliContext,
-    ) -> Result<(), Report<'_, (&'static str, Range<usize>)>> {
+    fn check_nonempty_files(&self, ctx: &CliContext) -> Result<(), ConfigErr> {
         for (i, file) in self.files.iter().enumerate() {
             // We read to check content, but error points to CLI argument
             let content = fs::read_to_string(file).unwrap_or_default();
 
             if content.trim().is_empty() {
                 let span = ctx.arg_spans.get(i).cloned().unwrap_or(0..0);
-                return Err(
+                return Err(Box::new(
                     Report::build(ReportKind::Error, ("<command line>", span.clone()))
                         .with_message("Empty source file")
                         .with_label(
@@ -278,22 +237,19 @@ impl Args {
                                 .with_color(Color::Yellow),
                         )
                         .finish(),
-                );
+                ));
             }
         }
         Ok(())
     }
 
-    fn check_no_nul_bytes(
-        &self,
-        ctx: &CliContext,
-    ) -> Result<(), Report<'_, (&'static str, Range<usize>)>> {
+    fn check_no_nul_bytes(&self, ctx: &CliContext) -> Result<(), ConfigErr> {
         for (i, file) in self.files.iter().enumerate() {
             let data = fs::read(file).unwrap_or_default();
 
             if data.contains(&0) {
                 let span = ctx.arg_spans.get(i).cloned().unwrap_or(0..0);
-                return Err(
+                return Err(Box::new(
                     Report::build(ReportKind::Error, ("<command line>", span.clone()))
                         .with_message("Binary file detected")
                         .with_label(
@@ -302,7 +258,7 @@ impl Args {
                                 .with_color(Color::Red),
                         )
                         .finish(),
-                );
+                ));
             }
         }
         Ok(())

@@ -153,7 +153,10 @@ pub fn parser() -> impl Parser<Token, Spanned<Expr>, Error = Simple<Token>> {
             .then_ignore(just(Token::Else))
             .then(expr.clone())
             .map_with_span(|((cond, then_e), else_e), span| {
-                Spanned::new(Expr::If(Box::new(cond), Box::new(then_e), Box::new(else_e)), span)
+                Spanned::new(
+                    Expr::If(Box::new(cond), Box::new(then_e), Box::new(else_e)),
+                    span,
+                )
             });
 
         lambda.or(let_expr).or(if_expr).or(comparison)
@@ -188,12 +191,16 @@ pub fn parse(input: &str) -> Result<Spanned<Expr>, Vec<CompileErr>> {
                     }
                     chumsky::error::SimpleReason::Unexpected => CompileErr::UnexpectedToken {
                         span: e.span(),
-                        expected: e.expected().map(|o| o.clone().map(|t| t.to_string())).collect(),
+                        expected: e
+                            .expected()
+                            .map(|o| o.clone().map(|t| t.to_string()))
+                            .collect(),
                         found: e.found().map(|t| t.to_string()),
                     },
-                    chumsky::error::SimpleReason::Custom(msg) => {
-                        CompileErr::Custom(msg.to_string())
-                    }
+                    chumsky::error::SimpleReason::Custom(msg) => CompileErr::Custom {
+                        span: e.span(),
+                        message: msg.to_string(),
+                    },
                 })
                 .collect()
         })
@@ -355,7 +362,7 @@ mod tests {
 
         if let Expr::Let(var, val, body) = result.node {
             assert_eq!(var, "x");
-            assert_eq!(val.span, 8..10);  // "10"
+            assert_eq!(val.span, 8..10); // "10"
             assert_eq!(body.span, 14..15); // "x"
         } else {
             panic!("Expected Let Expr");

@@ -1,5 +1,5 @@
 use crate::syntax::ast::{BinaryOp, Expr};
-use crate::vm::vm::OpCode;
+use crate::vm::core::OpCode;
 
 pub struct Compiler {
     pub code: Vec<OpCode>,

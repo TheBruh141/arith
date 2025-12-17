@@ -2,14 +2,14 @@
 mod tests {
     // Import your parser function
     use arith::syntax::parser::{parse, parser};
+    use arith::vm::core::{VM, Value};
     use arith::vm::trans_ast_bytecode::Compiler;
-    use arith::vm::vm::{VM, Value};
     use chumsky::Parser;
 
     /// Helper function to compile and run a string of source code.
     /// Returns the final Value or panics if parsing/execution fails.
     fn run(source: &str) -> Value {
-        let parser = parser();
+        let _parser = parser();
         let ast = parse(source)
             .map_err(|e| format!("Parse Error: {:?}", e))
             .expect("Parsing failed");
@@ -266,7 +266,7 @@ mod tests {
     #[test]
     fn test_greater_than_or_equal() {
         // Assuming >= is implemented in Lexer/Parser as ">="
-        let inp = "20 >= 10";
+        let _inp = "20 >= 10";
 
         // let p = parser();
         // let parsed = p.parse(inp).unwrap();

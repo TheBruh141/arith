@@ -88,29 +88,22 @@ impl fmt::Display for OpCode {
         }
 
         match self {
-            PushInt(n) => write!(f, "{} {}", op("PUSH_INT"), format!("{YELLOW}{n}{RESET}")),
-            PushBool(b) => write!(f, "{} {}", op("PUSH_BOOL"), format!("{YELLOW}{b}{RESET}")),
+            PushInt(n) => write!(f, "{} {YELLOW}{n}{RESET}", op("PUSH_INT")),
+            PushBool(b) => write!(f, "{} {YELLOW}{b}{RESET}", op("PUSH_BOOL")),
             Pop => write!(f, "{}", op("POP")),
             Add => write!(f, "{}", op("ADD")),
             Sub => write!(f, "{}", op("SUB")),
             Mul => write!(f, "{}", op("MUL")),
             Div => write!(f, "{}", op("DIV")),
-            Load(s) => write!(f, "{} {}", op("LOAD"), format!("{YELLOW}{s}{RESET}")),
-            Store(s) => write!(f, "{} {}", op("STORE"), format!("{YELLOW}{s}{RESET}")),
-            PopBinding(s) => write!(f, "{} {}", op("POP_BINDING"), format!("{YELLOW}{s}{RESET}")),
-            Jump(n) => write!(f, "{} @{}", op("JUMP"), format!("{YELLOW}{n}{RESET}")),
-            JumpIfFalse(n) => write!(
-                f,
-                "{} @{}",
-                op("JUMP_IF_FALSE"),
-                format!("{YELLOW}{n}{RESET}")
-            ),
+            Load(s) => write!(f, "{} {YELLOW}{s}{RESET}", op("LOAD")),
+            Store(s) => write!(f, "{} {YELLOW}{s}{RESET}", op("STORE")),
+            PopBinding(s) => write!(f, "{} {YELLOW}{s}{RESET}", op("POP_BINDING")),
+            Jump(n) => write!(f, "{} @{YELLOW}{n}{RESET}", op("JUMP")),
+            JumpIfFalse(n) => write!(f, "{} @{YELLOW}{n}{RESET}", op("JUMP_IF_FALSE"),),
             MakeClosure { addr, param } => write!(
                 f,
-                "{} param:{} @{}",
+                "{} param:{YELLOW}{param}{RESET} @{YELLOW}{addr}{RESET}",
                 op("CLOSURE"),
-                format!("{YELLOW}{param}{RESET}"),
-                format!("{YELLOW}{addr}{RESET}"),
             ),
             Call => write!(f, "{}", op("CALL")),
             Return => write!(f, "{}", op("RETURN")),
@@ -275,12 +268,7 @@ impl VM {
                     let arg = self.stack.pop().ok_or("Stack underflow (arg)")?;
                     let func = self.stack.pop().ok_or("Stack underflow (func)")?;
 
-                    if let Value::Closure {
-                        addr,
-                        param,
-                        env,
-                    } = func
-                    {
+                    if let Value::Closure { addr, param, env } = func {
                         // Convert flat env back to shadowing-capable env
                         let mut local_env: HashMap<String, Vec<Value>> = HashMap::new();
                         for (k, v) in env {
@@ -309,13 +297,14 @@ impl VM {
                 }
                 OpCode::PopBinding(name) => {
                     if let Some(frame) = self.frames.last_mut()
-                        && let Some(vec) = frame.locals.get_mut(&name) {
-                            vec.pop();
-                            // Optional: clean up empty vectors
-                            if vec.is_empty() {
-                                frame.locals.remove(&name);
-                            }
+                        && let Some(vec) = frame.locals.get_mut(&name)
+                    {
+                        vec.pop();
+                        // Optional: clean up empty vectors
+                        if vec.is_empty() {
+                            frame.locals.remove(&name);
                         }
+                    }
                     // We don't pop globals in this language
                 }
             }
@@ -474,12 +463,13 @@ impl VM {
 
                 OpCode::PopBinding(name) => {
                     if let Some(frame) = self.frames.last_mut()
-                        && let Some(vec) = frame.locals.get_mut(&name) {
-                            vec.pop();
-                            if vec.is_empty() {
-                                frame.locals.remove(&name);
-                            }
+                        && let Some(vec) = frame.locals.get_mut(&name)
+                    {
+                        vec.pop();
+                        if vec.is_empty() {
+                            frame.locals.remove(&name);
                         }
+                    }
                 }
 
                 // Jumps

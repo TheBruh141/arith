@@ -1,7 +1,6 @@
-use arith::syntax::parser::{parse, parser};
+use arith::syntax::parser::parse;
+use arith::vm::core::VM;
 use arith::vm::trans_ast_bytecode::Compiler;
-use arith::vm::vm::VM;
-use chumsky::Parser;
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 
 // Gen: "1 + 2 * 3 / 4 + 1 + ..."
@@ -70,8 +69,6 @@ fn gen_closure_capture(depth: usize) -> String {
 // ============================================================================
 
 pub fn feature_benchmarks(c: &mut Criterion) {
-    let parser = parser();
-
     // 1. ALU THROUGHPUT (Math)
     // Measures raw VM loop speed and stack push/pop.
     let mut group = c.benchmark_group("Micro_ALU");
@@ -79,7 +76,7 @@ pub fn feature_benchmarks(c: &mut Criterion) {
         let src = gen_arithmetic(*size);
         let ast = parse(src.as_str()).unwrap();
         let mut compiler = Compiler::new();
-        compiler.compile(&ast);
+        compiler.compile(&ast.node);
         let code = compiler.code;
 
         group.bench_with_input(BenchmarkId::from_parameter(size), size, |b, _| {
@@ -98,7 +95,7 @@ pub fn feature_benchmarks(c: &mut Criterion) {
         let src = gen_var_access(*size);
         let ast = parse(src.as_str()).unwrap();
         let mut compiler = Compiler::new();
-        compiler.compile(&ast);
+        compiler.compile(&ast.node);
         let code = compiler.code;
 
         group.bench_with_input(BenchmarkId::from_parameter(size), size, |b, _| {
@@ -117,7 +114,7 @@ pub fn feature_benchmarks(c: &mut Criterion) {
         let src = gen_branching(*depth);
         let ast = parse(src.as_str()).unwrap();
         let mut compiler = Compiler::new();
-        compiler.compile(&ast);
+        compiler.compile(&ast.node);
         let code = compiler.code;
 
         group.bench_with_input(BenchmarkId::from_parameter(depth), depth, |b, _| {
@@ -136,7 +133,7 @@ pub fn feature_benchmarks(c: &mut Criterion) {
         let src = gen_call_chain(*depth);
         let ast = parse(&*src).unwrap();
         let mut compiler = Compiler::new();
-        compiler.compile(&ast);
+        compiler.compile(&ast.node);
         let code = compiler.code;
 
         group.bench_with_input(BenchmarkId::from_parameter(depth), depth, |b, _| {
@@ -155,7 +152,7 @@ pub fn feature_benchmarks(c: &mut Criterion) {
         let src = gen_closure_capture(*vars);
         let ast = parse(&*src).unwrap();
         let mut compiler = Compiler::new();
-        compiler.compile(&ast);
+        compiler.compile(&ast.node);
         let code = compiler.code;
 
         group.bench_with_input(BenchmarkId::from_parameter(vars), vars, |b, _| {
